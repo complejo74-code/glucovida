@@ -1,20 +1,14 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { createClient, createAdminClient } from "@/lib/supabase/server";
 import type { Database } from "@/lib/supabase/types";
+import {
+  preFiltroSeguridad,
+  detectarGlucosa,
+} from "@/lib/agents/seguridad";
+import { clasificar, construirSystemPrompt } from "@/lib/agents/orquestador";
+import type { ResultadoRuteo } from "@/lib/agents/tipos";
 
 type EventoInsert = Database["public"]["Tables"]["evento"]["Insert"];
-
-// Prompt base — reglas de seguridad innegociables, nunca se modifican
-const GLUCO_SYSTEM_PROMPT_BASE = `Sos Gluco, el asistente de glucemia de GlucoVida. Educadora en diabetes,
-estándares ADA 2024, español rioplatense (vos, tenés). Cálida, nunca juzgás.
-Respuestas cortas tipo WhatsApp, 2 a 4 oraciones, una sola pregunta por vez.
-REGLAS DE SEGURIDAD INNEGOCIABLES: nunca indicás dosis de insulina ni cambios
-de medicación (podés explicar conceptos, no prescribir). Si el usuario reporta
-glucosa menor a 70 o síntomas de hipoglucemia, priorizás la regla 15/15 (15g de
-carbohidrato rápido, esperar 15 min, volver a medir) y avisar a alguien cercano.
-Ante síntomas graves (confusión, desmayo, dolor de pecho), derivás a urgencias
-con calma. Recordás con naturalidad que acompañás y educás, no reemplazás al
-equipo médico.`;
 
 /**
  * Formatea una fecha como texto relativo legible en español rioplatense.
@@ -65,73 +59,60 @@ async function buildHistorialContext(
   return items.join(" | ");
 }
 
-/**
- * Construye el system prompt final. Si hay historial, agrega una sección
- * privada con instrucciones sobre cómo usarlo con calidez, sin recitar
- * estadísticas ni juzgar. Las reglas de seguridad del prompt base nunca cambian.
- */
-function buildSystemPrompt(historial: string): string {
-  if (!historial) return GLUCO_SYSTEM_PROMPT_BASE;
-
-  return `${GLUCO_SYSTEM_PROMPT_BASE}
-
-[CONTEXTO PRIVADO — no mostrar crudo ni recitar al usuario]
-Últimas glucemias registradas: ${historial}
-Cómo usar este historial:
-- Úsalo para acompañar con calidez cuando sume algo humano (ej: "venís mejor que ayer").
-- No recités estadísticas ni promedios. No lo mencionás en cada respuesta.
-- Si el usuario comparte una glucemia nueva, podés comparar con suavidad cuando sea alentador.
-- Si no hay nada relevante que decir del historial en este momento, ignoralo completamente.
-- La memoria acompaña, no vigila. Jamás juzgás ni alarmás innecesariamente.`;
-}
-
 type MessageParam = {
   role: "user" | "assistant";
   content: string;
 };
 
 /**
- * Extrae valores de glucosa en mg/dL de un mensaje de texto.
- * Detecta patrones como: "190 mg/dl", "190mg/dl", "glucosa 190",
- * "290 de glucosa", "me desperté con 190", "tengo 95".
- * Devuelve el primer número encontrado en rango razonable [20, 600], o null.
+ * Observabilidad del ruteo. Guarda qué agente(s) atendieron el mensaje:
+ * - Si hubo glucemia detectada, va en metadatos del evento "glucemia".
+ * - Si no, se inserta un evento liviano tipo "ruteo_chat".
+ * Los errores se loguean pero nunca rompen la respuesta al usuario.
+ * NADA de esto viaja al cliente.
  */
-function detectarGlucosa(texto: string): number | null {
-  const textoLower = texto.toLowerCase();
+async function registrarObservabilidad(
+  userId: string,
+  mensaje: string,
+  ruteo: ResultadoRuteo
+): Promise<void> {
+  try {
+    const adminClient = createAdminClient();
+    const glucosa = detectarGlucosa(mensaje);
 
-  // Patrón 1: número con unidad explícita (mg/dl, mgdl)
-  const conUnidad = textoLower.match(/(\d{2,3})\s*mg\/?dl/);
-  if (conUnidad) {
-    const val = parseInt(conUnidad[1], 10);
-    if (val >= 20 && val <= 600) return val;
+    const metadatosRuteo = {
+      agentes: ruteo.agentes,
+      emergencia: ruteo.emergencia,
+      via: ruteo.via,
+    };
+
+    if (glucosa !== null) {
+      // Admin client para bypass RLS en escritura desde Route Handler server-side.
+      // La lectura del historial usa el cliente de sesión (RLS normal).
+      const payload: EventoInsert = {
+        usuario_id: userId,
+        tipo: "glucemia",
+        valor_num: glucosa,
+        valor_texto: mensaje.slice(0, 500),
+        metadatos: {
+          fuente: "chat",
+          detectado_automaticamente: true,
+          ruteo: metadatosRuteo,
+        },
+      };
+      await adminClient.from("evento").insert(payload);
+    } else {
+      const payload: EventoInsert = {
+        usuario_id: userId,
+        tipo: "ruteo_chat",
+        valor_texto: mensaje.slice(0, 200),
+        metadatos: { fuente: "chat", ruteo: metadatosRuteo },
+      };
+      await adminClient.from("evento").insert(payload);
+    }
+  } catch (error) {
+    console.error("[/api/chat] error registrando observabilidad:", error);
   }
-
-  // Patrón 2: palabra clave ANTES del número
-  const conPalabraAntes =
-    /(?:glucos[ao]|glucemia|azúcar|nivel|midió|midio|di[oó]|salió|salio|tuve|tengo|desperté|desperte|quedé|quede|registr[oó])\s+(?:de\s+|en\s+|un\s+)?(\d{2,3})/;
-  const matchAntes = textoLower.match(conPalabraAntes);
-  if (matchAntes) {
-    const val = parseInt(matchAntes[1], 10);
-    if (val >= 20 && val <= 600) return val;
-  }
-
-  // Patrón 3: número ANTES de palabra clave
-  const numSeguido = /(\d{2,3})\s+(?:de\s+)?(?:glucos[ao]|glucemia)/;
-  const matchSeguido = textoLower.match(numSeguido);
-  if (matchSeguido) {
-    const val = parseInt(matchSeguido[1], 10);
-    if (val >= 20 && val <= 600) return val;
-  }
-
-  // Patrón 4: contexto implícito — "con 190", "en 250" (rango más estricto)
-  const implícito = /(?:con|en)\s+(\d{2,3})(?:\s|$|[,.])/;
-  const matchImp = textoLower.match(implícito);
-  if (matchImp) {
-    const val = parseInt(matchImp[1], 10);
-    if (val >= 40 && val <= 500) return val;
-  }
-
-  return null;
 }
 
 export async function POST(request: Request) {
@@ -156,15 +137,29 @@ export async function POST(request: Request) {
   let messages: MessageParam[];
 
   try {
-    const body = await request.json();
-    messages = body.messages;
+    const body: unknown = await request.json();
+    const candidato = (body as { messages?: unknown }).messages;
 
-    if (!Array.isArray(messages) || messages.length === 0) {
+    // Validación runtime de la forma de cada mensaje. Sin esto, un content
+    // no-string crashearía el pre-filtro de seguridad (toLowerCase sobre no-string).
+    const esMensajeValido = (m: unknown): m is MessageParam =>
+      typeof m === "object" &&
+      m !== null &&
+      ((m as MessageParam).role === "user" ||
+        (m as MessageParam).role === "assistant") &&
+      typeof (m as MessageParam).content === "string";
+
+    if (
+      !Array.isArray(candidato) ||
+      candidato.length === 0 ||
+      !candidato.every(esMensajeValido)
+    ) {
       return Response.json(
         { reply: "No recibí ningún mensaje. ¿Me contás qué necesitás?" },
         { status: 400 }
       );
     }
+    messages = candidato;
   } catch {
     return Response.json(
       { reply: "Hubo un error al leer tu mensaje. ¿Podés intentar de nuevo?" },
@@ -172,44 +167,58 @@ export async function POST(request: Request) {
     );
   }
 
-  // Leer historial de glucemia del usuario (con RLS — cliente de sesión, no admin)
-  // y guardar el evento actual si se detecta un valor. Ambas operaciones son
-  // independientes: el historial se lee ANTES de llamar a Anthropic.
   const ultimoMensajeUsuario = [...messages]
     .reverse()
     .find((m) => m.role === "user");
+  const textoUsuario = ultimoMensajeUsuario?.content ?? "";
 
-  // Leer historial con el cliente de sesión (RLS aplicado — solo datos del usuario)
-  const historial = user
-    ? await buildHistorialContext(supabase, user.id)
-    : "";
+  // ── PASO 1: PRE-FILTRO DE SEGURIDAD ──────────────────────────────────────
+  // Determinístico (regex + keywords), server-side, ANTES de cualquier LLM.
+  // Si detecta glucosa <70, síntomas de hipo o síntomas graves, la respuesta
+  // prioriza el protocolo 15/15 / urgencias y NO se clasifica nada.
+  const preFiltro = preFiltroSeguridad(textoUsuario);
 
-  // Guardar evento de glucemia detectado en el mensaje actual
-  if (user && ultimoMensajeUsuario) {
-    const glucosa = detectarGlucosa(ultimoMensajeUsuario.content);
-    if (glucosa !== null) {
-      // Admin client para bypass RLS en escritura desde Route Handler server-side.
-      // La service_role solo se usa aquí; la lectura del historial usa el cliente
-      // de sesión (anon key + cookies) para que el RLS se aplique normalmente.
-      const adminClient = createAdminClient();
-      const payload: EventoInsert = {
-        usuario_id: user.id,
-        tipo: "glucemia",
-        valor_num: glucosa,
-        valor_texto: ultimoMensajeUsuario.content.slice(0, 500),
-        metadatos: { fuente: "chat", detectado_automaticamente: true },
-      };
-      await adminClient.from("evento").insert(payload);
-    }
+  const client = new Anthropic({ apiKey });
+
+  // ── PASO 2: CLASIFICACIÓN ────────────────────────────────────────────────
+  // Solo si NO hay emergencia. Llamada corta a Haiku que devuelve JSON.
+  // Si falla o no hay match claro → agentes=[] → Gluco general (que también
+  // lleva las reglas de seguridad: el prompt SIEMPRE arranca con ellas).
+  let ruteo: ResultadoRuteo;
+  if (preFiltro.esEmergencia) {
+    ruteo = { agentes: [], emergencia: true, via: "prefiltro" };
+  } else {
+    const clasificacion = await clasificar(client, textoUsuario);
+    ruteo = {
+      agentes: clasificacion.agentes,
+      emergencia: false,
+      via: clasificacion.via,
+    };
   }
 
-  try {
-    const client = new Anthropic({ apiKey });
+  // Log server-side del ruteo (observabilidad; jamás viaja al cliente)
+  console.log("[/api/chat] ruteo:", JSON.stringify(ruteo));
 
+  // Memoria del paso 4: historial de glucemia con RLS (cliente de sesión)
+  const historial = user ? await buildHistorialContext(supabase, user.id) : "";
+
+  // Observabilidad: guardar ruteo (y glucemia si se detectó). Server-side only.
+  if (user && textoUsuario) {
+    await registrarObservabilidad(user.id, textoUsuario, ruteo);
+  }
+
+  // ── PASO 3: RESPUESTA ÚNICA ──────────────────────────────────────────────
+  // Un solo prompt: seguridad (siempre) + especialidades elegidas + memoria.
+  // Si son 2+ subagentes, se combinan en la misma llamada.
+  try {
     const response = await client.messages.create({
       model: "claude-sonnet-4-6",
       max_tokens: 512,
-      system: buildSystemPrompt(historial),
+      system: construirSystemPrompt({
+        agentes: ruteo.agentes,
+        emergencia: ruteo.emergencia,
+        historial,
+      }),
       messages,
     });
 
@@ -219,6 +228,7 @@ export async function POST(request: Request) {
         ? textBlock.text
         : "No pude generar una respuesta. ¿Lo intentamos de nuevo?";
 
+    // El cliente recibe SOLO la respuesta. El ruteo interno nunca se expone.
     return Response.json({ reply });
   } catch (error) {
     console.error("[/api/chat] Anthropic API error:", error);
