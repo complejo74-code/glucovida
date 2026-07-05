@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { createClient, createAdminClient } from "@/lib/supabase/server";
+import { createClient } from "@/lib/supabase/server";
 import type { Database } from "@/lib/supabase/types";
 import {
   preFiltroSeguridad,
@@ -68,16 +68,19 @@ type MessageParam = {
  * Observabilidad del ruteo. Guarda qué agente(s) atendieron el mensaje:
  * - Si hubo glucemia detectada, va en metadatos del evento "glucemia".
  * - Si no, se inserta un evento liviano tipo "ruteo_chat".
+ * Usa el cliente CON SESIÓN del usuario (anon key + cookies): la política RLS
+ * `evento_insert_own` (WITH CHECK auth.uid() = usuario_id) autoriza el insert.
+ * Nada en este flujo usa service_role.
  * Los errores se loguean pero nunca rompen la respuesta al usuario.
  * NADA de esto viaja al cliente.
  */
 async function registrarObservabilidad(
+  supabase: Awaited<ReturnType<typeof createClient>>,
   userId: string,
   mensaje: string,
   ruteo: ResultadoRuteo
 ): Promise<void> {
   try {
-    const adminClient = createAdminClient();
     const glucosa = detectarGlucosa(mensaje);
 
     const metadatosRuteo = {
@@ -87,8 +90,6 @@ async function registrarObservabilidad(
     };
 
     if (glucosa !== null) {
-      // Admin client para bypass RLS en escritura desde Route Handler server-side.
-      // La lectura del historial usa el cliente de sesión (RLS normal).
       const payload: EventoInsert = {
         usuario_id: userId,
         tipo: "glucemia",
@@ -100,7 +101,8 @@ async function registrarObservabilidad(
           ruteo: metadatosRuteo,
         },
       };
-      await adminClient.from("evento").insert(payload);
+      const { error } = await supabase.from("evento").insert(payload);
+      if (error) throw error;
     } else {
       const payload: EventoInsert = {
         usuario_id: userId,
@@ -108,7 +110,8 @@ async function registrarObservabilidad(
         valor_texto: mensaje.slice(0, 200),
         metadatos: { fuente: "chat", ruteo: metadatosRuteo },
       };
-      await adminClient.from("evento").insert(payload);
+      const { error } = await supabase.from("evento").insert(payload);
+      if (error) throw error;
     }
   } catch (error) {
     console.error("[/api/chat] error registrando observabilidad:", error);
@@ -116,6 +119,20 @@ async function registrarObservabilidad(
 }
 
 export async function POST(request: Request) {
+  // ── AUTENTICACIÓN ESTRICTA ─────────────────────────────────────────────────
+  // Sin sesión válida no se procesa NADA: ni body, ni clasificación, ni LLM.
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return Response.json(
+      { reply: "Necesitás iniciar sesión para chatear con Gluco." },
+      { status: 401 }
+    );
+  }
+
   const apiKey = process.env.ANTHROPIC_API_KEY;
 
   if (!apiKey) {
@@ -127,12 +144,6 @@ export async function POST(request: Request) {
       { status: 503 }
     );
   }
-
-  // Leer la sesión del usuario autenticado
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
 
   let messages: MessageParam[];
 
@@ -200,11 +211,12 @@ export async function POST(request: Request) {
   console.log("[/api/chat] ruteo:", JSON.stringify(ruteo));
 
   // Memoria del paso 4: historial de glucemia con RLS (cliente de sesión)
-  const historial = user ? await buildHistorialContext(supabase, user.id) : "";
+  const historial = await buildHistorialContext(supabase, user.id);
 
-  // Observabilidad: guardar ruteo (y glucemia si se detectó). Server-side only.
-  if (user && textoUsuario) {
-    await registrarObservabilidad(user.id, textoUsuario, ruteo);
+  // Observabilidad: guardar ruteo (y glucemia si se detectó). Server-side only,
+  // con el cliente de sesión del usuario (RLS aplicado).
+  if (textoUsuario) {
+    await registrarObservabilidad(supabase, user.id, textoUsuario, ruteo);
   }
 
   // ── PASO 3: RESPUESTA ÚNICA ──────────────────────────────────────────────

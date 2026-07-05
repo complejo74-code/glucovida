@@ -50,54 +50,149 @@ const SINTOMAS_HIPO =
 const SINTOMAS_GRAVES =
   /confusi[oó]n|confundid|desmay|desvanec|convulsi|p[eé]rdida\s*de\s*conocimiento|dolor\s*de\s*pecho|no\s+puedo\s+hablar|no\s+veo/i;
 
+// ── Detección de glucosa endurecida (paso 5.5) ──────────────────────────────
+// Filosofía: en salud, un dato faltante es mejor que un dato falso.
+// Solo se acepta un número si (a) no está pegado a una unidad no glucémica ni
+// tiene formato de hora/fecha, (b) tiene contexto glucémico real cerca, y
+// (c) está en rango plausible [30, 600] mg/dL. Ante la duda → null.
+
+/** Rango plausible de glucemia capilar/CGM en mg/dL. */
+const GLUCOSA_MIN = 30;
+const GLUCOSA_MAX = 600;
+
+/** Unidades/palabras que descartan el número si aparecen inmediatamente después. */
+const EXCLUSION_DESPUES =
+  /^\s*(?:hs\b|hrs?\b|horas?\b|hora\b|a[ñn]os?\b|pesos?\b|d[oó]lares?\b|usd\b|gramos?\b|grs?\b|g\s+de\b|kg\b|kilos?\b|minutos?\b|min\b|mins\b|segundos?\b|d[ií]as?\b|semanas?\b|meses\b|veces\b|cuadras?\b|km\b|metros?\b|%)/;
+
+/** Prefijos que descartan el número si aparecen inmediatamente antes. */
+const EXCLUSION_ANTES = /(?:\$|n[uú]mero|nro\.?|n°|a\s+las?|el\s+bondi|colectivo|l[ií]nea)\s*$/;
+
+/** Unidad glucémica explícita inmediatamente después del número. */
+const UNIDAD_DESPUES = /^\s*(?:mg\s*\/?\s*dl|mgdl)/;
+
+/** Palabra glucémica poco después del número: "190 de glucemia". */
+const CONTEXTO_DESPUES = /^\s*(?:de\s+)?(?:glucos[ao]|glucemia|de\s+az[uú]car)/;
+
 /**
- * Extrae valores de glucosa en mg/dL de un mensaje de texto.
- * Detecta patrones como: "190 mg/dl", "glucosa 190", "290 de glucosa",
- * "me desperté con 190", "estoy en 62".
- * Devuelve el primer número encontrado en rango razonable [20, 600], o null.
+ * Contexto glucémico ANTES del número (evaluado sobre la ventana previa):
+ * - Sustantivo glucémico a distancia corta: glucosa, glucemia, azúcar,
+ *   "me medí", medición, sensor, dexcom, freestyle.
+ * - O frase corporal que precede DIRECTAMENTE al número: "amanecí en/con",
+ *   "me desperté con", "estoy en", "quedé en", etc. (sin palabras en el medio,
+ *   para no confundir "estoy en 62" con "estoy en la calle 62").
+ */
+const CONTEXTO_ANTES =
+  /(?:glucos[ao]|glucemia|az[uú]car|me\s+med[ií]|medici[oó]n|sensor|dexcom|freestyle|libre\s+marca)[^\d]{0,30}$|(?:amanec[ií]|me\s+despert[eé]|me\s+levant[eé]|arranqu[eé])\s+(?:en|con)\s+$|(?:estoy|ando|qued[eé]|sigo)\s+en\s+$/;
+
+/** Formato hora (8:30) o fecha (15/07): el número toca ':' '/' o '-'. */
+function esHoraOFecha(texto: string, inicio: number, fin: number): boolean {
+  const antes = inicio > 0 ? texto[inicio - 1] : "";
+  const despues = fin < texto.length ? texto[fin] : "";
+  return [":", "/", "-", ",", "."].includes(antes) || [":", "/", "-"].includes(despues);
+}
+
+/**
+ * Extrae UN valor de glucemia en mg/dL de un mensaje, con criterio estricto.
+ * Ejemplos que guarda: "amanecí en 190", "estoy en 62", "tengo 250 mg/dl",
+ * "mi glucemia es 110", "me dio 190 de glucemia".
+ * Ejemplos que descarta: "nos vemos a las 190hs", "gasté 150 pesos",
+ * "comí 80 gramos", "el bondi 152", "tengo 45 años", "a las 8:30".
+ * Devuelve el primer número con contexto glucémico en [30, 600], o null.
  */
 export function detectarGlucosa(texto: string): number | null {
   const textoLower = texto.toLowerCase();
 
-  // Patrón 1: número con unidad explícita (mg/dl, mgdl)
-  const conUnidad = textoLower.match(/(\d{2,3})\s*mg\/?dl/);
-  if (conUnidad) {
-    const val = parseInt(conUnidad[1], 10);
-    if (val >= 20 && val <= 600) return val;
-  }
+  for (const match of textoLower.matchAll(/\d{2,3}/g)) {
+    const inicio = match.index;
+    const fin = inicio + match[0].length;
 
-  // Patrón 2: palabra clave ANTES del número
-  const conPalabraAntes =
-    /(?:glucos[ao]|glucemia|azúcar|nivel|midió|midio|di[oó]|salió|salio|tuve|tengo|desperté|desperte|amanec[ií]|quedé|quede|registr[oó])\s+(?:de\s+|en\s+|un\s+|con\s+)?(\d{2,3})/;
-  const matchAntes = textoLower.match(conPalabraAntes);
-  if (matchAntes) {
-    const val = parseInt(matchAntes[1], 10);
-    if (val >= 20 && val <= 600) return val;
-  }
+    // Descartar si es parte de un número más largo (ej: "12345")
+    if (/\d/.test(textoLower[inicio - 1] ?? "") || /\d/.test(textoLower[fin] ?? "")) {
+      continue;
+    }
 
-  // Patrón 3: número ANTES de palabra clave
-  const numSeguido = /(\d{2,3})\s+(?:de\s+)?(?:glucos[ao]|glucemia)/;
-  const matchSeguido = textoLower.match(numSeguido);
-  if (matchSeguido) {
-    const val = parseInt(matchSeguido[1], 10);
-    if (val >= 20 && val <= 600) return val;
-  }
+    // Exclusiones: hora/fecha, unidades no glucémicas, prefijos descartables
+    if (esHoraOFecha(textoLower, inicio, fin)) continue;
+    const ventanaAntes = textoLower.slice(Math.max(0, inicio - 45), inicio);
+    const restoDespues = textoLower.slice(fin);
+    if (EXCLUSION_DESPUES.test(restoDespues)) continue;
+    if (EXCLUSION_ANTES.test(ventanaAntes)) continue;
 
-  // Patrón 4: contexto implícito — "con 190", "en 250" (rango más estricto)
-  const implicito = /(?:con|en)\s+(\d{2,3})(?:\s|$|[,.])/;
-  const matchImp = textoLower.match(implicito);
-  if (matchImp) {
-    const val = parseInt(matchImp[1], 10);
-    if (val >= 40 && val <= 500) return val;
+    // Contexto glucémico obligatorio: unidad o palabra clave cerca
+    const tieneContexto =
+      UNIDAD_DESPUES.test(restoDespues) ||
+      CONTEXTO_DESPUES.test(restoDespues) ||
+      CONTEXTO_ANTES.test(ventanaAntes);
+    if (!tieneContexto) continue;
+
+    // Rango plausible
+    const val = parseInt(match[0], 10);
+    if (val >= GLUCOSA_MIN && val <= GLUCOSA_MAX) return val;
   }
 
   return null;
 }
 
+// ── Detección laxa de hipo, SOLO para el pre-filtro de emergencia ────────────
+// El costo es asimétrico respecto de la persistencia: un falso positivo acá es
+// un mensaje de 15/15 de más; un falso negativo es una hipo sin protocolo.
+// Por eso: mismas exclusiones (horas, plata, unidades), pero contexto más laxo
+// ("me dio", "me marcó", "bajé a") y piso 20 (los glucómetros leen desde ~20).
+// NADA de esto persiste datos: la escritura sigue usando detectarGlucosa.
+
+const HIPO_MIN = 20;
+const HIPO_MAX = 69;
+
+/** Frases laxas que preceden directamente al número reportando una medición. */
+const CONTEXTO_HIPO_ANTES =
+  /(?:me\s+dio|me\s+marc[oó]|marc[oó]|me\s+baj[oó]\s+a|baj[eé]\s+a|ca[ií]\s+a)\s+(?:un\s+|de\s+)?$/;
+
+/** Palabra glucémica en cualquier parte del mensaje (contexto global laxo). */
+const CONTEXTO_HIPO_GLOBAL =
+  /glucos[ao]|glucemia|az[uú]car|sensor|dexcom|freestyle|glucómetro|glucometro|mg\s*\/?\s*dl|hipo/i;
+
+/**
+ * ¿El mensaje sugiere una glucemia en rango de hipoglucemia [20, 69]?
+ * Más sensible que detectarGlucosa, pero mantiene las exclusiones duras
+ * (horas, fechas, plata, unidades no glucémicas) para no gritar 15/15
+ * ante "me dio 52 pesos" o "nos vemos a las 45hs".
+ */
+function detectarHipoPosible(texto: string): boolean {
+  const textoLower = texto.toLowerCase();
+  const contextoGlobal = CONTEXTO_HIPO_GLOBAL.test(textoLower);
+
+  for (const match of textoLower.matchAll(/\d{2}/g)) {
+    const inicio = match.index;
+    const fin = inicio + match[0].length;
+
+    if (/\d/.test(textoLower[inicio - 1] ?? "") || /\d/.test(textoLower[fin] ?? "")) {
+      continue;
+    }
+    if (esHoraOFecha(textoLower, inicio, fin)) continue;
+
+    const ventanaAntes = textoLower.slice(Math.max(0, inicio - 45), inicio);
+    const restoDespues = textoLower.slice(fin);
+    if (EXCLUSION_DESPUES.test(restoDespues)) continue;
+    if (EXCLUSION_ANTES.test(ventanaAntes)) continue;
+
+    const tieneContexto =
+      contextoGlobal ||
+      CONTEXTO_ANTES.test(ventanaAntes) ||
+      CONTEXTO_HIPO_ANTES.test(ventanaAntes);
+    if (!tieneContexto) continue;
+
+    const val = parseInt(match[0], 10);
+    if (val >= HIPO_MIN && val <= HIPO_MAX) return true;
+  }
+
+  return false;
+}
+
 /**
  * PRE-FILTRO DE SEGURIDAD — determinístico, sin LLM.
  * Corre ANTES de la clasificación y de cualquier llamada a Anthropic.
- * Dispara si: glucosa detectada < 70, síntomas de hipo, o síntomas graves.
+ * Dispara si: glucosa detectada < 70 (o hipo posible con criterio laxo),
+ * síntomas de hipo, o síntomas graves.
  */
 export function preFiltroSeguridad(texto: string): ResultadoPreFiltro {
   if (SINTOMAS_GRAVES.test(texto)) {
@@ -106,6 +201,10 @@ export function preFiltroSeguridad(texto: string): ResultadoPreFiltro {
 
   const glucosa = detectarGlucosa(texto);
   if (glucosa !== null && glucosa < 70) {
+    return { esEmergencia: true, motivo: "glucosa_baja" };
+  }
+
+  if (glucosa === null && detectarHipoPosible(texto)) {
     return { esEmergencia: true, motivo: "glucosa_baja" };
   }
 
