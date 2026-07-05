@@ -98,15 +98,22 @@ export async function clasificar(
  * Construye el system prompt final. INVARIANTE DE SEGURIDAD:
  * REGLAS_SEGURIDAD va SIEMPRE primero, en todos los caminos posibles:
  * - emergencia=true  → seguridad + instrucción de emergencia (+ historial)
- * - agentes=[a,b]    → seguridad + especialidades combinadas (+ historial)
- * - agentes=[]       → seguridad sola = el Gluco general de siempre (+ historial)
+ * - agentes=[a,b]    → seguridad + especialidades combinadas (+ historial + patrones)
+ * - agentes=[]       → seguridad sola = el Gluco general de siempre (+ historial + patrones)
+ *
+ * El contexto de patrones (paso 6) se inyecta como bloque privado, igual que la
+ * memoria: siempre DESPUÉS de seguridad y especialidades, y NUNCA en emergencia
+ * (no se diluye el 15/15 con patrones). Ese gate es estructural acá adentro
+ * —no depende de que el caller pase patrones=""—, igual que la garantía de que
+ * REGLAS_SEGURIDAD va primero.
  */
 export function construirSystemPrompt(opciones: {
   agentes: AgenteId[];
   emergencia: boolean;
   historial: string;
+  patrones?: string;
 }): string {
-  const { agentes, emergencia, historial } = opciones;
+  const { agentes, emergencia, historial, patrones = "" } = opciones;
   const partes: string[] = [REGLAS_SEGURIDAD];
 
   if (emergencia) {
@@ -126,6 +133,11 @@ Cómo usar este historial:
 - Si el usuario comparte una glucemia nueva, podés comparar con suavidad cuando sea alentador.
 - Si no hay nada relevante que decir del historial en este momento, ignoralo completamente.
 - La memoria acompaña, no vigila. Jamás juzgás ni alarmás innecesariamente.`);
+  }
+
+  // Gate estructural: jamás inyectamos patrones durante una emergencia.
+  if (patrones && !emergencia) {
+    partes.push(patrones);
   }
 
   return partes.join("\n\n");

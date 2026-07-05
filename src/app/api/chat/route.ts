@@ -7,6 +7,12 @@ import {
 } from "@/lib/agents/seguridad";
 import { clasificar, construirSystemPrompt } from "@/lib/agents/orquestador";
 import type { ResultadoRuteo } from "@/lib/agents/tipos";
+import {
+  leerLecturas14d,
+  calcularPatrones,
+  sincronizarPatrones,
+  construirContextoPatrones,
+} from "@/lib/patrones";
 
 type EventoInsert = Database["public"]["Tables"]["evento"]["Insert"];
 
@@ -219,9 +225,28 @@ export async function POST(request: Request) {
     await registrarObservabilidad(supabase, user.id, textoUsuario, ruteo);
   }
 
+  // ── PASO 6: PATRONES TEMPORALES (determinísticos, RLS) ───────────────────
+  // Se corre DESPUÉS de la observabilidad para incluir la lectura recién
+  // guardada. Recalcula (upsert) los patrones del usuario y arma el contexto
+  // privado para el prompt. NUNCA en emergencia: no se diluye el 15/15 con
+  // patrones. Todo con el cliente de sesión (RLS); los errores nunca rompen
+  // la respuesta.
+  let contextoPatrones = "";
+  if (!ruteo.emergencia) {
+    try {
+      const ahora = new Date();
+      const lecturas = await leerLecturas14d(supabase, user.id, ahora);
+      const patrones = calcularPatrones(lecturas, ahora);
+      await sincronizarPatrones(supabase, user.id, patrones);
+      contextoPatrones = construirContextoPatrones(patrones);
+    } catch (error) {
+      console.error("[/api/chat] error en patrones:", error);
+    }
+  }
+
   // ── PASO 3: RESPUESTA ÚNICA ──────────────────────────────────────────────
-  // Un solo prompt: seguridad (siempre) + especialidades elegidas + memoria.
-  // Si son 2+ subagentes, se combinan en la misma llamada.
+  // Un solo prompt: seguridad (siempre) + especialidades elegidas + memoria
+  // + patrones. Si son 2+ subagentes, se combinan en la misma llamada.
   try {
     const response = await client.messages.create({
       model: "claude-sonnet-4-6",
@@ -230,6 +255,7 @@ export async function POST(request: Request) {
         agentes: ruteo.agentes,
         emergencia: ruteo.emergencia,
         historial,
+        patrones: contextoPatrones,
       }),
       messages,
     });

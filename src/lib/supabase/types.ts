@@ -55,6 +55,37 @@ export interface Database {
         };
         Relationships: [];
       };
+      patron: {
+        Row: {
+          id: string;
+          usuario_id: string;
+          factor: string;
+          efecto_estimado: number | null;
+          n_observaciones: number;
+          confianza: number;
+          detalle: Json | null;
+          actualizado_en: string;
+        };
+        Insert: {
+          id?: string;
+          usuario_id: string;
+          factor: string;
+          efecto_estimado?: number | null;
+          n_observaciones: number;
+          confianza: number;
+          detalle?: Json | null;
+          actualizado_en?: string;
+        };
+        Update: {
+          factor?: string;
+          efecto_estimado?: number | null;
+          n_observaciones?: number;
+          confianza?: number;
+          detalle?: Json | null;
+          actualizado_en?: string;
+        };
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: Record<string, never>;
