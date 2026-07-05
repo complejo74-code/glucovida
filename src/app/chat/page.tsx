@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import { signOut } from "@/app/login/actions";
 
 type Message = {
   role: "user" | "assistant";
@@ -118,6 +119,23 @@ export default function ChatPage() {
             Asistente de glucemia
           </p>
         </div>
+        <form action={signOut} style={{ marginLeft: "auto" }}>
+          <button
+            type="submit"
+            style={{
+              background: "transparent",
+              border: "1px solid rgba(255,255,255,0.4)",
+              borderRadius: 8,
+              color: "#FFFFFF",
+              fontSize: 13,
+              padding: "6px 12px",
+              cursor: "pointer",
+              minHeight: 44,
+            }}
+          >
+            Salir
+          </button>
+        </form>
       </div>
 
       {/* Disclaimer */}
