@@ -39,3 +39,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# planes internos de trabajo (no documentación del producto)
+docs/superpowers/

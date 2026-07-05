@@ -70,3 +70,13 @@ porque el proyecto exige autorización explícita para borrar código.
   16 negativos, 3 de integración con `preFiltroSeguridad`).
 - Metodología: TDD — los tests se escribieron primero y fallaron (4 rojos:
   2 falsos positivos y 2 casos legítimos perdidos) antes de reescribir.
+
+## Backlog conocido (decisión consciente, no bloqueante)
+
+- `"glucemia:145"` (sin espacio después de `:`) no se detecta: `esHoraOFecha`
+  descarta números precedidos por `:`. Con espacio (`"glucemia: 145"`)
+  funciona. Pendiente de refinamiento futuro.
+- Cerrado en esta misma iteración: `createAdminClient` eliminado de
+  `server.ts` (sin usos tras la migración a RLS) y `docs/superpowers/`
+  agregado a `.gitignore`. "me bajó a 55 el azúcar" sí alerta — verificado
+  con test de regresión.

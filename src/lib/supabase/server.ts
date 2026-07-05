@@ -30,23 +30,3 @@ export async function createClient() {
     }
   );
 }
-
-/**
- * Cliente con service_role para operaciones privilegiadas (solo servidor).
- * Bypasea RLS — usar únicamente cuando el servidor necesita escribir en nombre del usuario.
- * NUNCA exportar ni usar en Client Components.
- */
-export function createAdminClient() {
-  return createServerClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return [];
-        },
-        setAll() {},
-      },
-    }
-  );
-}

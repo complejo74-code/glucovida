@@ -175,6 +175,20 @@ describe("preFiltroSeguridad — integración con la detección endurecida", () 
     });
   });
 
+  test('"me bajó a 55 el azúcar" dispara emergencia', () => {
+    expect(preFiltroSeguridad("me bajó a 55 el azúcar")).toEqual({
+      esEmergencia: true,
+      motivo: "glucosa_baja",
+    });
+  });
+
+  test('"me bajó a 550 pesos" NO dispara emergencia (plata)', () => {
+    expect(preFiltroSeguridad("me bajó a 550 pesos")).toEqual({
+      esEmergencia: false,
+      motivo: null,
+    });
+  });
+
   test('"nací en el 55" NO dispara emergencia', () => {
     expect(preFiltroSeguridad("nací en el 55")).toEqual({
       esEmergencia: false,

@@ -12,7 +12,11 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
 ### Agregado
 - `detectarHipoPosible`: detección laxa de hipoglucemia [20–69] usada SOLO por el pre-filtro de emergencia (nunca persiste datos) — doble umbral persistir/alertar surgido del code review.
-- Vitest como test runner (`npm test`) y suite de 35 tests unitarios de `detectarGlucosa` y `preFiltroSeguridad` con casos positivos y negativos (`__tests__/detectarGlucosa.test.ts`).
+- Vitest como test runner (`npm test`) y suite de 37 tests unitarios de `detectarGlucosa` y `preFiltroSeguridad` con casos positivos y negativos, incluyendo "me bajó a 55 el azúcar" → alerta (`__tests__/detectarGlucosa.test.ts`).
+
+### Eliminado
+- `createAdminClient` (service_role) de `src/lib/supabase/server.ts`: quedó sin usos tras migrar la observabilidad a RLS. La historia queda en git si algún día se necesita conscientemente.
+- `docs/superpowers/` ignorado en git (planes internos de trabajo, no documentación del producto).
 - Este CHANGELOG, con entradas retroactivas de los pasos 1 a 5.
 - Documentación del endurecimiento en `docs/endurecimiento-paso-5-5.md`.
 
