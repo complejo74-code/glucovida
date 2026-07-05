@@ -1,3 +1,51 @@
+# GlucoVida
+
+Plataforma web para personas con diabetes — asistente de glucemia Gluco.
+
+## Variables de entorno requeridas
+
+Crear un archivo `.env.local` en la raíz del proyecto:
+
+```bash
+ANTHROPIC_API_KEY=sk-ant-...   # Clave de Anthropic (nunca commitear)
+```
+
+En producción (Vercel): configurar en **Settings → Environment Variables**.
+
+## API
+
+### `POST /api/chat`
+
+Endpoint de servidor (Route Handler). La clave de Anthropic nunca se expone al cliente.
+
+**Request body:**
+```json
+{
+  "messages": [
+    { "role": "user", "content": "¿Qué es la regla 15/15?" }
+  ]
+}
+```
+
+**Response:**
+```json
+{
+  "reply": "La regla 15/15 consiste en..."
+}
+```
+
+**Modelo:** `claude-sonnet-4-6`
+**System prompt:** Gluco — asistente de glucemia con estándares ADA 2024, español rioplatense, reglas de seguridad para hipoglucemia.
+
+## Pantallas
+
+| Ruta | Descripción |
+|------|-------------|
+| `/` | Home (en construcción) |
+| `/chat` | Chat con Gluco |
+
+---
+
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
 ## Getting Started
