@@ -23,6 +23,7 @@ export interface Database {
         Update: {
           tipo_diabetes?: string | null;
         };
+        Relationships: [];
       };
       evento: {
         Row: {
@@ -52,7 +53,10 @@ export interface Database {
           metadatos?: Json | null;
           ocurrido_en?: string;
         };
+        Relationships: [];
       };
     };
+    Views: Record<string, never>;
+    Functions: Record<string, never>;
   };
 }

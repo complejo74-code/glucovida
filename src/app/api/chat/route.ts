@@ -1,4 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { createClient, createAdminClient } from "@/lib/supabase/server";
+import type { Database } from "@/lib/supabase/types";
+
+type EventoInsert = Database["public"]["Tables"]["evento"]["Insert"];
 
 const GLUCO_SYSTEM_PROMPT = `Sos Gluco, el asistente de glucemia de GlucoVida. Educadora en diabetes,
 estándares ADA 2024, español rioplatense (vos, tenés). Cálida, nunca juzgás.
@@ -16,6 +20,50 @@ type MessageParam = {
   content: string;
 };
 
+/**
+ * Extrae valores de glucosa en mg/dL de un mensaje de texto.
+ * Detecta patrones como: "190 mg/dl", "190mg/dl", "glucosa 190",
+ * "290 de glucosa", "me desperté con 190", "tengo 95".
+ * Devuelve el primer número encontrado en rango razonable [20, 600], o null.
+ */
+function detectarGlucosa(texto: string): number | null {
+  const textoLower = texto.toLowerCase();
+
+  // Patrón 1: número con unidad explícita (mg/dl, mgdl)
+  const conUnidad = textoLower.match(/(\d{2,3})\s*mg\/?dl/);
+  if (conUnidad) {
+    const val = parseInt(conUnidad[1], 10);
+    if (val >= 20 && val <= 600) return val;
+  }
+
+  // Patrón 2: palabra clave ANTES del número
+  const conPalabraAntes =
+    /(?:glucos[ao]|glucemia|azúcar|nivel|midió|midio|di[oó]|salió|salio|tuve|tengo|desperté|desperte|quedé|quede|registr[oó])\s+(?:de\s+|en\s+|un\s+)?(\d{2,3})/;
+  const matchAntes = textoLower.match(conPalabraAntes);
+  if (matchAntes) {
+    const val = parseInt(matchAntes[1], 10);
+    if (val >= 20 && val <= 600) return val;
+  }
+
+  // Patrón 3: número ANTES de palabra clave
+  const numSeguido = /(\d{2,3})\s+(?:de\s+)?(?:glucos[ao]|glucemia)/;
+  const matchSeguido = textoLower.match(numSeguido);
+  if (matchSeguido) {
+    const val = parseInt(matchSeguido[1], 10);
+    if (val >= 20 && val <= 600) return val;
+  }
+
+  // Patrón 4: contexto implícito — "con 190", "en 250" (rango más estricto)
+  const implícito = /(?:con|en)\s+(\d{2,3})(?:\s|$|[,.])/;
+  const matchImp = textoLower.match(implícito);
+  if (matchImp) {
+    const val = parseInt(matchImp[1], 10);
+    if (val >= 40 && val <= 500) return val;
+  }
+
+  return null;
+}
+
 export async function POST(request: Request) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
 
@@ -28,6 +76,12 @@ export async function POST(request: Request) {
       { status: 503 }
     );
   }
+
+  // Leer la sesión del usuario autenticado
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
   let messages: MessageParam[];
 
@@ -46,6 +100,28 @@ export async function POST(request: Request) {
       { reply: "Hubo un error al leer tu mensaje. ¿Podés intentar de nuevo?" },
       { status: 400 }
     );
+  }
+
+  // Detectar y guardar evento de glucemia si hay usuario autenticado
+  const ultimoMensajeUsuario = [...messages]
+    .reverse()
+    .find((m) => m.role === "user");
+
+  if (user && ultimoMensajeUsuario) {
+    const glucosa = detectarGlucosa(ultimoMensajeUsuario.content);
+    if (glucosa !== null) {
+      // Admin client para bypass RLS — necesario en Route Handlers server-side
+      // donde la sesión del usuario no está disponible para el cliente normal
+      const adminClient = createAdminClient();
+      const payload: EventoInsert = {
+        usuario_id: user.id,
+        tipo: "glucemia",
+        valor_num: glucosa,
+        valor_texto: ultimoMensajeUsuario.content.slice(0, 500),
+        metadatos: { fuente: "chat", detectado_automaticamente: true },
+      };
+      await adminClient.from("evento").insert(payload);
+    }
   }
 
   try {
