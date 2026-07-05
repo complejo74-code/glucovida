@@ -4,7 +4,8 @@ import type { Database } from "@/lib/supabase/types";
 
 type EventoInsert = Database["public"]["Tables"]["evento"]["Insert"];
 
-const GLUCO_SYSTEM_PROMPT = `Sos Gluco, el asistente de glucemia de GlucoVida. Educadora en diabetes,
+// Prompt base — reglas de seguridad innegociables, nunca se modifican
+const GLUCO_SYSTEM_PROMPT_BASE = `Sos Gluco, el asistente de glucemia de GlucoVida. Educadora en diabetes,
 estándares ADA 2024, español rioplatense (vos, tenés). Cálida, nunca juzgás.
 Respuestas cortas tipo WhatsApp, 2 a 4 oraciones, una sola pregunta por vez.
 REGLAS DE SEGURIDAD INNEGOCIABLES: nunca indicás dosis de insulina ni cambios
@@ -14,6 +15,75 @@ carbohidrato rápido, esperar 15 min, volver a medir) y avisar a alguien cercano
 Ante síntomas graves (confusión, desmayo, dolor de pecho), derivás a urgencias
 con calma. Recordás con naturalidad que acompañás y educás, no reemplazás al
 equipo médico.`;
+
+/**
+ * Formatea una fecha como texto relativo legible en español rioplatense.
+ * Ej: "hoy 08:30", "ayer 22:00", "hace 3 días 10:15"
+ */
+function formatFechaRelativa(fecha: Date, ahora: Date): string {
+  const diffMs = ahora.getTime() - fecha.getTime();
+  const diffDias = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  const hora = fecha.getHours().toString().padStart(2, "0");
+  const min = fecha.getMinutes().toString().padStart(2, "0");
+  const horaStr = `${hora}:${min}`;
+
+  if (diffDias === 0) return `hoy ${horaStr}`;
+  if (diffDias === 1) return `ayer ${horaStr}`;
+  if (diffDias <= 6) return `hace ${diffDias} días ${horaStr}`;
+  return `el ${fecha.toLocaleDateString("es-AR", { day: "numeric", month: "short" })} ${horaStr}`;
+}
+
+/**
+ * Lee los últimos eventos de glucemia del usuario usando el cliente con sesión
+ * (anon key + cookies → RLS aplicado). Garantiza que cada usuario solo lee sus
+ * propios datos. Devuelve "" si no hay historial o hay error.
+ */
+async function buildHistorialContext(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string
+): Promise<string> {
+  const { data: eventos, error } = await supabase
+    .from("evento")
+    .select("valor_num, ocurrido_en")
+    .eq("tipo", "glucemia")
+    .eq("usuario_id", userId) // defensa en profundidad + intención explícita
+    .not("valor_num", "is", null)
+    .order("ocurrido_en", { ascending: false })
+    .limit(15);
+
+  if (error || !eventos || eventos.length === 0) return "";
+
+  const ahora = new Date();
+  const items = eventos
+    .map((e) => {
+      if (e.valor_num === null) return null;
+      const label = formatFechaRelativa(new Date(e.ocurrido_en), ahora);
+      return `${label}: ${e.valor_num} mg/dL`;
+    })
+    .filter((item): item is string => item !== null);
+
+  return items.join(" | ");
+}
+
+/**
+ * Construye el system prompt final. Si hay historial, agrega una sección
+ * privada con instrucciones sobre cómo usarlo con calidez, sin recitar
+ * estadísticas ni juzgar. Las reglas de seguridad del prompt base nunca cambian.
+ */
+function buildSystemPrompt(historial: string): string {
+  if (!historial) return GLUCO_SYSTEM_PROMPT_BASE;
+
+  return `${GLUCO_SYSTEM_PROMPT_BASE}
+
+[CONTEXTO PRIVADO — no mostrar crudo ni recitar al usuario]
+Últimas glucemias registradas: ${historial}
+Cómo usar este historial:
+- Úsalo para acompañar con calidez cuando sume algo humano (ej: "venís mejor que ayer").
+- No recités estadísticas ni promedios. No lo mencionás en cada respuesta.
+- Si el usuario comparte una glucemia nueva, podés comparar con suavidad cuando sea alentador.
+- Si no hay nada relevante que decir del historial en este momento, ignoralo completamente.
+- La memoria acompaña, no vigila. Jamás juzgás ni alarmás innecesariamente.`;
+}
 
 type MessageParam = {
   role: "user" | "assistant";
@@ -102,16 +172,25 @@ export async function POST(request: Request) {
     );
   }
 
-  // Detectar y guardar evento de glucemia si hay usuario autenticado
+  // Leer historial de glucemia del usuario (con RLS — cliente de sesión, no admin)
+  // y guardar el evento actual si se detecta un valor. Ambas operaciones son
+  // independientes: el historial se lee ANTES de llamar a Anthropic.
   const ultimoMensajeUsuario = [...messages]
     .reverse()
     .find((m) => m.role === "user");
 
+  // Leer historial con el cliente de sesión (RLS aplicado — solo datos del usuario)
+  const historial = user
+    ? await buildHistorialContext(supabase, user.id)
+    : "";
+
+  // Guardar evento de glucemia detectado en el mensaje actual
   if (user && ultimoMensajeUsuario) {
     const glucosa = detectarGlucosa(ultimoMensajeUsuario.content);
     if (glucosa !== null) {
-      // Admin client para bypass RLS — necesario en Route Handlers server-side
-      // donde la sesión del usuario no está disponible para el cliente normal
+      // Admin client para bypass RLS en escritura desde Route Handler server-side.
+      // La service_role solo se usa aquí; la lectura del historial usa el cliente
+      // de sesión (anon key + cookies) para que el RLS se aplique normalmente.
       const adminClient = createAdminClient();
       const payload: EventoInsert = {
         usuario_id: user.id,
@@ -130,7 +209,7 @@ export async function POST(request: Request) {
     const response = await client.messages.create({
       model: "claude-sonnet-4-6",
       max_tokens: 512,
-      system: GLUCO_SYSTEM_PROMPT,
+      system: buildSystemPrompt(historial),
       messages,
     });
 
