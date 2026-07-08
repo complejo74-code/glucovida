@@ -112,8 +112,15 @@ export function construirSystemPrompt(opciones: {
   emergencia: boolean;
   historial: string;
   patrones?: string;
+  variables?: string;
 }): string {
-  const { agentes, emergencia, historial, patrones = "" } = opciones;
+  const {
+    agentes,
+    emergencia,
+    historial,
+    patrones = "",
+    variables = "",
+  } = opciones;
   const partes: string[] = [REGLAS_SEGURIDAD];
 
   if (emergencia) {
@@ -133,6 +140,17 @@ Cómo usar este historial:
 - Si el usuario comparte una glucemia nueva, podés comparar con suavidad cuando sea alentador.
 - Si no hay nada relevante que decir del historial en este momento, ignoralo completamente.
 - La memoria acompaña, no vigila. Jamás juzgás ni alarmás innecesariamente.`);
+  }
+
+  // Memoria del paso 7 (sueño / estrés): bloque privado, mismo gate estructural
+  // que patrones — NUNCA durante una emergencia (no se diluye el 15/15).
+  if (variables && !emergencia) {
+    partes.push(`[CONTEXTO PRIVADO — hábitos recientes, NO mostrar crudo ni recitar]
+${variables}
+Cómo usar esto:
+- Son cosas que la persona fue contando al pasar (cuánto durmió, cómo anda de estrés). Usalas solo si suman algo humano o si vienen al caso.
+- Si ves que durmió poco o venía muy estresada, podés mencionarlo con suavidad ("¿cómo venís durmiendo estos días?"), jamás como reproche ni vigilancia.
+- No recités números ni lo traigas en cada respuesta. Si no viene al caso ahora, ignoralo. La memoria acompaña, no controla.`);
   }
 
   // Gate estructural: jamás inyectamos patrones durante una emergencia.

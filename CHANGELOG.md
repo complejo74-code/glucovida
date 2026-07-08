@@ -3,6 +3,26 @@
 Todos los cambios notables de este proyecto se documentan acá.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [Paso 7] — 2026-07-08 — Captura conversacional de variables
+
+### Agregado
+- Módulo `src/lib/agents/deteccion.ts`: cinco detectores **puros y determinísticos** (`detectarSueno`, `detectarEstres`, `detectarComida`, `detectarEjercicio`, `detectarInsulina`) + agregador `detectarEventos`. Captura **pasiva** de variables que la persona menciona al pasar, con la misma filosofía que `detectarGlucosa`: contexto obligatorio, exclusiones duras y, ante la duda, no guardar. Un mensaje puede generar varios eventos ("dormí 5 horas y amanecí en 190" → `sueno` + `glucemia`).
+- **Insulina = registro estrictamente informativo.** Exige verbo de aplicación en pasado ("me puse", "me apliqué"…) + contexto de insulina; las preguntas de dosis y la intención futura NO disparan registro. `valor_num` viene `null` a propósito (cero semántica de dosis): nunca se interpreta, persiste ni sugiere una dosis.
+- Estimación de carbos (v0): `metadatos.estimacion_carbs` solo cuando el usuario los declara explícitamente ("comí 45g de carbos"); nada de adivinar por IA.
+- Nuevos `tipo` de `evento`: `sueno`, `estres`, `comida`, `ejercicio`, `insulina`. **Sin migración**: `evento.tipo` es `text` libre.
+- `buildVariablesContext` (`/api/chat`): memoria de **sueño y estrés** recientes (comida y ejercicio afuera, demasiado ruido) con RLS, inyectada como contexto privado igual que la memoria de glucemia.
+- Tests: `__tests__/deteccion.test.ts` (55) con casos positivos/negativos por tipo, múltiples eventos y regresiones del code review. Total 119 tests.
+- Documentación en `docs/deteccion-conversacional-paso-7.md` y `DB_SCHEMA.md`.
+
+### Cambiado
+- `construirSystemPrompt` acepta `variables` (sueño/estrés), inyectado después de la memoria de glucemia y siempre con `REGLAS_SEGURIDAD` primero. **Gate estructural de emergencia:** nunca en `emergencia === true`, igual que patrones (`src/lib/agents/orquestador.ts`).
+- `registrarObservabilidad` (`/api/chat`) persiste los eventos capturados junto a la fila de glucemia/ruteo en un **único insert por lote**, todo con el cliente de sesión (RLS valida cada fila).
+
+### Notas del code review
+- Insulina: confirmado que la captura **solo** produce registro (nunca recomendación), RLS intacto (cliente de sesión, `WITH CHECK auth.uid() = usuario_id`, cero `service_role`) y guardrails de emergencia en todos los caminos.
+- Correcciones aplicadas: `rápida`/`lenta`/`basal` sueltos ya no matchean como insulina (requieren artículo/preposición: "la lenta", "de rápida") — evitaba registros falsos como "me apliqué la crema rápidamente"; el intensificador "re" ya no se cuela desde el final de otra palabra ("siempre tranquilo"); "sin estrés" se registra como calma (2), no como estrés moderado.
+- Nota técnica: `\b` es ASCII y no reconoce vocales acentuadas; los detectores usan lookbehind/lookahead con clase acentuada en su lugar.
+
 ## [Paso 6] — 2026-07-05 — Patrones temporales v0
 
 ### Agregado

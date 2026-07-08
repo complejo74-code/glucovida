@@ -5,6 +5,7 @@ import {
   preFiltroSeguridad,
   detectarGlucosa,
 } from "@/lib/agents/seguridad";
+import { detectarEventos } from "@/lib/agents/deteccion";
 import { clasificar, construirSystemPrompt } from "@/lib/agents/orquestador";
 import type { ResultadoRuteo } from "@/lib/agents/tipos";
 import {
@@ -65,6 +66,54 @@ async function buildHistorialContext(
   return items.join(" | ");
 }
 
+/**
+ * Memoria del paso 7: últimos eventos de SUEÑO y ESTRÉS del usuario (comida y
+ * ejercicio quedan afuera a propósito: demasiado ruido). Mismo cliente de sesión
+ * (RLS + filtro explícito por usuario_id) y misma disciplina que la memoria de
+ * glucemia. Devuelve "" si no hay nada. El texto es CONTEXTO PRIVADO; Gluco
+ * decide si mencionarlo con suavidad ("¿cómo venís durmiendo?"), nunca lo recita.
+ */
+async function buildVariablesContext(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string
+): Promise<string> {
+  const { data, error } = await supabase
+    .from("evento")
+    .select("tipo, valor_num, valor_texto, ocurrido_en")
+    .in("tipo", ["sueno", "estres"])
+    .eq("usuario_id", userId) // defensa en profundidad + intención explícita
+    .order("ocurrido_en", { ascending: false })
+    .limit(12);
+
+  if (error || !data || data.length === 0) return "";
+
+  const ahora = new Date();
+  const linea = (
+    tipo: "sueno" | "estres",
+    unidad: (v: number) => string
+  ): string | null => {
+    const items = data
+      .filter((e) => e.tipo === tipo)
+      .slice(0, 3)
+      .map((e) => {
+        const label = formatFechaRelativa(new Date(e.ocurrido_en), ahora);
+        const valor = e.valor_num !== null ? unidad(e.valor_num) : "sin dato";
+        const nota = (e.valor_texto ?? "").trim().slice(0, 40);
+        return `${label}: ${valor}${nota ? ` ("${nota}")` : ""}`;
+      });
+    if (items.length === 0) return null;
+    const etiqueta = tipo === "sueno" ? "Sueño reciente" : "Estrés reciente";
+    return `${etiqueta}: ${items.join(" | ")}`;
+  };
+
+  const partes = [
+    linea("sueno", (v) => `${v} h`),
+    linea("estres", (v) => `${v}/10`),
+  ].filter((p): p is string => p !== null);
+
+  return partes.join("\n");
+}
+
 type MessageParam = {
   role: "user" | "assistant";
   content: string;
@@ -95,30 +144,47 @@ async function registrarObservabilidad(
       via: ruteo.via,
     };
 
-    if (glucosa !== null) {
-      const payload: EventoInsert = {
-        usuario_id: userId,
-        tipo: "glucemia",
-        valor_num: glucosa,
-        valor_texto: mensaje.slice(0, 500),
-        metadatos: {
-          fuente: "chat",
-          detectado_automaticamente: true,
-          ruteo: metadatosRuteo,
-        },
-      };
-      const { error } = await supabase.from("evento").insert(payload);
-      if (error) throw error;
-    } else {
-      const payload: EventoInsert = {
-        usuario_id: userId,
-        tipo: "ruteo_chat",
-        valor_texto: mensaje.slice(0, 200),
-        metadatos: { fuente: "chat", ruteo: metadatosRuteo },
-      };
-      const { error } = await supabase.from("evento").insert(payload);
-      if (error) throw error;
-    }
+    // Carril de glucemia / observabilidad del ruteo (como hasta ahora): una fila.
+    const base: EventoInsert =
+      glucosa !== null
+        ? {
+            usuario_id: userId,
+            tipo: "glucemia",
+            valor_num: glucosa,
+            valor_texto: mensaje.slice(0, 500),
+            metadatos: {
+              fuente: "chat",
+              detectado_automaticamente: true,
+              ruteo: metadatosRuteo,
+            },
+          }
+        : {
+            usuario_id: userId,
+            tipo: "ruteo_chat",
+            valor_texto: mensaje.slice(0, 200),
+            metadatos: { fuente: "chat", ruteo: metadatosRuteo },
+          };
+
+    // Carril de variables conversacionales (paso 7): sueño, estrés, comida,
+    // ejercicio, insulina. Cada detección es una fila ADICIONAL. La insulina es
+    // registro estrictamente informativo: valor_num viene null desde el detector
+    // (cero semántica de dosis) y jamás se produce ni persiste una recomendación.
+    const capturados: EventoInsert[] = detectarEventos(mensaje).map((ev) => ({
+      usuario_id: userId,
+      tipo: ev.tipo,
+      valor_num: ev.valorNum,
+      valor_texto: ev.valorTexto.slice(0, 500),
+      metadatos: {
+        fuente: "chat",
+        detectado_automaticamente: true,
+        ...(ev.metadatos ?? {}),
+      },
+    }));
+
+    // Un solo insert por lote (base + variables) → un round-trip, mismo cliente
+    // de sesión (RLS: WITH CHECK auth.uid() = usuario_id valida cada fila).
+    const { error } = await supabase.from("evento").insert([base, ...capturados]);
+    if (error) throw error;
   } catch (error) {
     console.error("[/api/chat] error registrando observabilidad:", error);
   }
@@ -219,6 +285,12 @@ export async function POST(request: Request) {
   // Memoria del paso 4: historial de glucemia con RLS (cliente de sesión)
   const historial = await buildHistorialContext(supabase, user.id);
 
+  // Memoria del paso 7: sueño y estrés recientes (RLS). Solo fuera de emergencia
+  // (no se diluye el 15/15); construirSystemPrompt igual lo vuelve a gatear.
+  const variables = ruteo.emergencia
+    ? ""
+    : await buildVariablesContext(supabase, user.id);
+
   // Observabilidad: guardar ruteo (y glucemia si se detectó). Server-side only,
   // con el cliente de sesión del usuario (RLS aplicado).
   if (textoUsuario) {
@@ -256,6 +328,7 @@ export async function POST(request: Request) {
         emergencia: ruteo.emergencia,
         historial,
         patrones: contextoPatrones,
+        variables,
       }),
       messages,
     });

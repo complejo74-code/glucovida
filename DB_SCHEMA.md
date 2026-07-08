@@ -21,22 +21,27 @@ Se crea automáticamente al registrarse vía trigger `on_auth_user_created`
 
 ### `evento` (migración 001)
 
-Registro genérico de eventos del usuario. Hoy se usa para glucemias
-(`tipo='glucemia'`, valor en `valor_num` mg/dL) y observabilidad del ruteo
-(`tipo='ruteo_chat'`).
+Registro genérico de eventos del usuario. Se usa para glucemias
+(`tipo='glucemia'`, valor en `valor_num` mg/dL), observabilidad del ruteo
+(`tipo='ruteo_chat'`) y, desde el paso 7, las variables capturadas
+conversacionalmente: `sueno`, `estres`, `comida`, `ejercicio`, `insulina`.
 
 | Columna | Tipo | Notas |
 |---------|------|-------|
 | `id` | `uuid` PK | `DEFAULT gen_random_uuid()` |
 | `usuario_id` | `uuid` | `REFERENCES auth.users(id) ON DELETE CASCADE` |
-| `tipo` | `text` NOT NULL | `'glucemia'`, `'ruteo_chat'`, … |
-| `valor_num` | `numeric` | mg/dL cuando es glucemia |
-| `valor_texto` | `text` | texto original / etiqueta |
-| `metadatos` | `jsonb` | fuente, ruteo, flags |
+| `tipo` | `text` NOT NULL | `'glucemia'`, `'ruteo_chat'`, `'sueno'`, `'estres'`, `'comida'`, `'ejercicio'`, `'insulina'`, … |
+| `valor_num` | `numeric` | mg/dL (glucemia), horas (sueño), 1-10 (estrés), minutos (ejercicio). **Siempre `null` en `insulina`** (cero semántica de dosis) |
+| `valor_texto` | `text` | texto original / etiqueta / descripción |
+| `metadatos` | `jsonb` | fuente, ruteo, flags; `estimacion_carbs` en `comida` si el usuario la declaró |
 | `ocurrido_en` | `timestamptz` NOT NULL | `DEFAULT now()` (UTC) |
 | `creado_en` | `timestamptz` NOT NULL | `DEFAULT now()` |
 
 Índice: `idx_evento_usuario_tiempo (usuario_id, ocurrido_en DESC)`.
+
+`tipo` es `text` libre (sin `CHECK`): los tipos del paso 7 **no requieren
+migración**. La detección determinística vive en `src/lib/agents/deteccion.ts`
+(ver `docs/deteccion-conversacional-paso-7.md`).
 
 ### `patron` (migración 002 — paso 6)
 
