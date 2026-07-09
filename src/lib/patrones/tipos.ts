@@ -72,3 +72,53 @@ export interface Patron {
   confianza: number;
   detalle: DetallePatron;
 }
+
+// ── PATRONES CRUZADOS v0 (paso 8) ────────────────────────────────────────────
+// Relación observada entre DOS variables (una variable vs. la glucemia). El
+// cálculo es determinístico (cruces.ts, sin LLM). CRÍTICO: esto detecta
+// CORRELACIÓN, no causalidad; la comunicación es SIEMPRE una pregunta tentativa.
+
+/** Los cruces de v0. Estructura pensada para sumar más después. */
+export type FactorCruce = "sueno_vs_amanecer" | "estres_vs_glucemia";
+
+/** Un grupo comparado dentro de un cruce (ej. "noches de poco sueño"). */
+export interface GrupoComparado {
+  /** Promedio de glucemia del grupo (mg/dL). */
+  promedio: number;
+  /** Nº de observaciones (días/noches) en el grupo. Rigor: factor 41. */
+  n: number;
+}
+
+export interface DetalleSuenoAmanecer {
+  /** Amanecer tras noches por debajo del umbral de horas. */
+  pocoSueno: GrupoComparado;
+  /** Amanecer tras noches de sueño ≥ umbral de horas. */
+  suenoNormal: GrupoComparado;
+  /** Umbral de horas que separa "poco" de "normal" (v0: 6 h). */
+  umbralHoras: number;
+}
+
+export interface DetalleEstresGlucemia {
+  /** Glucemia promedio de los días de estrés alto. */
+  estresAlto: GrupoComparado;
+  /** Glucemia promedio de los días de estrés bajo. */
+  estresBajo: GrupoComparado;
+}
+
+export type DetalleCruce = DetalleSuenoAmanecer | DetalleEstresGlucemia;
+
+/**
+ * Un patrón cruzado detectado. Comparte forma con `Patron` (mismos campos de
+ * rigor) a propósito: así persiste en la misma tabla `patron` por la misma vía
+ * RLS. `efectoEstimado` es la diferencia de promedios (grupo expuesto − control).
+ */
+export interface PatronCruzado {
+  factor: FactorCruce;
+  /** Diferencia de promedios (expuesto − control), mg/dL. Puede ser negativa. */
+  efectoEstimado: number;
+  /** Total de observaciones en ambos grupos. */
+  nObservaciones: number;
+  /** Robustez por tamaño de muestra [0,1]. Proxy v0, NO es un p-value. */
+  confianza: number;
+  detalle: DetalleCruce;
+}

@@ -43,25 +43,31 @@ conversacionalmente: `sueno`, `estres`, `comida`, `ejercicio`, `insulina`.
 migración**. La detección determinística vive en `src/lib/agents/deteccion.ts`
 (ver `docs/deteccion-conversacional-paso-7.md`).
 
-### `patron` (migración 002 — paso 6)
+### `patron` (migración 002 — paso 6; ampliada en paso 8)
 
-Patrones temporales detectados de forma determinística sobre las glucemias del
-usuario. Una fila por `(usuario_id, factor)`; se recalcula (upsert) al procesar
-cada mensaje.
+Patrones detectados de forma determinística sobre los datos del usuario. Una fila
+por `(usuario_id, factor)`; se recalcula (upsert) al procesar cada mensaje.
+Alberga tanto los **patrones simples** (paso 6, una variable) como los **patrones
+cruzados** (paso 8, relación entre dos variables).
 
 | Columna | Tipo | Notas |
 |---------|------|-------|
 | `id` | `uuid` PK | `DEFAULT gen_random_uuid()` |
 | `usuario_id` | `uuid` NOT NULL | `REFERENCES auth.users(id) ON DELETE CASCADE` |
-| `factor` | `text` NOT NULL | `'amanecer_alto'` / `'franja_problematica'` / `'tendencia_semanal'` / `'hipos_recurrentes'` |
-| `efecto_estimado` | `numeric` | magnitud (unidad según el factor) |
-| `n_observaciones` | `integer` NOT NULL | lecturas que respaldan el patrón (factor 41) |
+| `factor` | `text` NOT NULL | simples: `'amanecer_alto'` / `'franja_problematica'` / `'tendencia_semanal'` / `'hipos_recurrentes'` · cruzados (paso 8): `'sueno_vs_amanecer'` / `'estres_vs_glucemia'` |
+| `efecto_estimado` | `numeric` | magnitud (unidad según el factor). En los cruces = **diferencia de promedios** (grupo expuesto − control), en mg/dL; **puede ser negativa** |
+| `n_observaciones` | `integer` NOT NULL | observaciones que respaldan el patrón (factor 41). En los cruces = suma de ambos grupos |
 | `confianza` | `numeric` NOT NULL | `[0,1]`, proxy por muestra (no es p-value) |
-| `detalle` | `jsonb` | franja, dirección, promedios… para la comunicación |
+| `detalle` | `jsonb` | simples: franja, dirección, promedios… · cruces: los dos grupos comparados (`promedio` + `n` de cada uno) para la comunicación |
 | `actualizado_en` | `timestamptz` NOT NULL | `DEFAULT now()` |
 
 Restricción: `UNIQUE (usuario_id, factor)` → upsert idempotente. Su índice
 también sirve las lecturas por `usuario_id` (no hay índice adicional).
+
+Los factores cruzados **no requirieron migración**: `factor` es `text` libre y la
+tabla ya modela la forma que comparten simples y cruzados (mismos campos de rigor
++ `detalle jsonb`). Un patrón cruzado es una **correlación observada, no una
+relación causal** (ver `docs/patrones-cruzados-paso-8.md`).
 
 ## Row Level Security
 

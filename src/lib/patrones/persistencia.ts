@@ -9,35 +9,42 @@
  */
 import type { createClient } from "@/lib/supabase/server";
 import type { Json } from "@/lib/supabase/types";
-import type { FactorPatron, Lectura, Patron } from "./tipos";
+import type { FactorCruce, FactorPatron, Lectura, Patron, PatronCruzado } from "./tipos";
 
 type SupabaseSesion = Awaited<ReturnType<typeof createClient>>;
 
 const MS_DIA = 86_400_000;
 const VENTANA_DIAS = 14;
 
-const TODOS_LOS_FACTORES: readonly FactorPatron[] = [
+/** Todos los factores conocidos (simples + cruzados) para el barrido de borrado. */
+const TODOS_LOS_FACTORES: readonly (FactorPatron | FactorCruce)[] = [
   "amanecer_alto",
   "franja_problematica",
   "tendencia_semanal",
   "hipos_recurrentes",
+  "sueno_vs_amanecer",
+  "estres_vs_glucemia",
 ];
 
 /**
- * Lee las glucemias del usuario de los últimos 14 días (RLS aplicado + filtro
- * explícito por usuario_id como defensa en profundidad). Devuelve [] ante error.
+ * Lee lecturas numéricas del usuario de los últimos 14 días para un `tipo` de
+ * evento (por defecto glucemia; paso 8 lo reusa para sueño y estrés). RLS
+ * aplicado + filtro explícito por usuario_id como defensa en profundidad. Las
+ * filas sin valor numérico se excluyen (ej. sueño sin horas). Devuelve [] ante
+ * error.
  */
 export async function leerLecturas14d(
   supabase: SupabaseSesion,
   userId: string,
-  ahora: Date
+  ahora: Date,
+  tipo = "glucemia"
 ): Promise<Lectura[]> {
   const desde = new Date(ahora.getTime() - VENTANA_DIAS * MS_DIA).toISOString();
 
   const { data, error } = await supabase
     .from("evento")
     .select("valor_num, ocurrido_en")
-    .eq("tipo", "glucemia")
+    .eq("tipo", tipo)
     .eq("usuario_id", userId) // defensa en profundidad + intención explícita
     .not("valor_num", "is", null)
     .gte("ocurrido_en", desde)
@@ -63,7 +70,7 @@ export async function leerLecturas14d(
 export async function sincronizarPatrones(
   supabase: SupabaseSesion,
   userId: string,
-  patrones: Patron[]
+  patrones: Array<Patron | PatronCruzado>
 ): Promise<void> {
   try {
     const activos = new Set(patrones.map((p) => p.factor));

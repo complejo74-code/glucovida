@@ -3,6 +3,26 @@
 Todos los cambios notables de este proyecto se documentan acá.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [Paso 8] — 2026-07-09 — Patrones cruzados v0
+
+### Agregado
+- Módulo `src/lib/patrones/cruces.ts`: detección **determinística** (sin LLM) de relaciones entre **dos variables** y la glucemia. Dos cruces v0: `sueno_vs_amanecer` (noches de `<6 h` vs. `≥6 h` → glucemia de amanecer 5–9 h del mismo día local) y `estres_vs_glucemia` (días de estrés `≥7` vs. `≤4`, el medio 5–6 se excluye → glucemia promedio del día). Guard genérico `evaluarCruce` preparado para sumar más cruces.
+- **Rigor reforzado (factor 41):** un cruce solo se reporta con **≥5 observaciones en cada grupo** Y **diferencia de promedios ≥20 mg/dL**; con datos escasos o diferencia chica → `null` (el sistema **calla**). Cada cruce lleva `n` por grupo y `confianza` (proxy por muestra, no p-value).
+- **Correlación, no causalidad** (lo central del paso): documentado explícitamente en el código y comunicado **siempre como pregunta tentativa** ("¿Será que…?"), con lenguaje asociativo ("coinciden con", "los días que…") y **jamás causal** ("te sube/te causa/genera"). El bloque incluye el recordatorio de que es una correlación observada, no un diagnóstico ni una relación de causa.
+- Nuevos `factor` en la tabla `patron`: `sueno_vs_amanecer`, `estres_vs_glucemia`. **Sin migración**: `factor` es `text` libre y los cruces comparten la forma persistida de los patrones simples (`efecto_estimado` = diferencia de promedios, puede ser negativa; `detalle jsonb` = los dos grupos comparados).
+- Tests: `__tests__/patrones-cruzados.test.ts` (20) con datos sintéticos — reporta / insuficiente / diferencia chica / contradictorio por cada cruce, exclusión del estrés medio, selección unificada (máx. un patrón entre simples y cruzados) y guardrails de lenguaje. Total 139 tests.
+- Documentación en `docs/patrones-cruzados-paso-8.md` (con la distinción correlación/causalidad desarrollada) y `DB_SCHEMA.md`.
+
+### Cambiado
+- `construirContextoPatrones(patrones, cruces=[])` y nuevo `seleccionarMencion`: los patrones simples y cruzados **conviven** y la selección elige **UN solo** patrón conversacional entre todos (el de mayor confianza); el bloque de seguridad de `hipos_recurrentes` sigue apareciendo siempre, aparte. Firma retrocompatible (segundo arg opcional).
+- `leerLecturas14d(supabase, userId, ahora, tipo="glucemia")`: reusa la lectura con RLS para sueño y estrés (las filas sin valor numérico se excluyen). `sincronizarPatrones` acepta simples + cruzados y el barrido de borrado incluye los factores cruzados.
+- `/api/chat` lee glucemias + sueño + estrés (en paralelo, RLS), calcula los cruces, los persiste junto a los simples e inyecta el contexto — después de la observabilidad y solo fuera de emergencia. Cualquier error va a `try/catch` y nunca rompe la respuesta.
+- Helpers `promedio`, `redondear`, `confianzaMuestra`, `enVentana` y el nuevo `fechaLocalKey` exportados desde `calculo.ts` para reuso (los cruces no duplican matemática).
+
+### Notas del code review
+- Verificado: (a) matemática determinística y testeada; (b) cero lenguaje causal en cualquier cruce (blindado por test regex); (c) RLS y guardrails intactos (cliente de sesión + filtro `usuario_id`, sin `service_role`, máximo un patrón, nunca en emergencia). Sin bugs de correctitud.
+- Corrección aplicada: evitar el doble cálculo de `horaLocal` por lectura al filtrar el amanecer.
+
 ## [Paso 7] — 2026-07-08 — Captura conversacional de variables
 
 ### Agregado

@@ -8,6 +8,12 @@ export type {
   FranjaHoraria,
   DireccionTendencia,
   DetallePatron,
+  FactorCruce,
+  PatronCruzado,
+  GrupoComparado,
+  DetalleCruce,
+  DetalleSuenoAmanecer,
+  DetalleEstresGlucemia,
 } from "./tipos";
 export {
   amanecerAlto,
@@ -16,8 +22,10 @@ export {
   hiposRecurrentes,
   calcularPatrones,
 } from "./calculo";
+export { suenoVsAmanecer, estresVsGlucemia, calcularCruces } from "./cruces";
 export {
   seleccionarConversacional,
+  seleccionarMencion,
   construirContextoPatrones,
 } from "./contexto";
 export { leerLecturas14d, sincronizarPatrones } from "./persistencia";

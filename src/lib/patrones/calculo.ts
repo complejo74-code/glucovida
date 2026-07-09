@@ -45,6 +45,13 @@ const fmtHora = new Intl.DateTimeFormat("en-GB", {
   hour: "2-digit",
   hourCycle: "h23",
 });
+/** Formatea la fecha local rioplatense como "YYYY-MM-DD" (clave de día). */
+const fmtDia = new Intl.DateTimeFormat("en-CA", {
+  timeZone: ZONA,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
 
 /**
  * Hora local rioplatense [0,23] de una fecha UTC. Imprescindible: `ocurrido_en`
@@ -55,22 +62,30 @@ export function horaLocal(fecha: Date): number {
   return Number.isNaN(h) ? fecha.getUTCHours() : h % 24;
 }
 
-function promedio(nums: number[]): number {
+/**
+ * Clave de día local rioplatense ("YYYY-MM-DD"). La usan los cruces (paso 8)
+ * para agrupar sueño/estrés/glucemia por día calendario local, no UTC.
+ */
+export function fechaLocalKey(fecha: Date): string {
+  return fmtDia.format(fecha);
+}
+
+export function promedio(nums: number[]): number {
   return nums.reduce((a, b) => a + b, 0) / nums.length;
 }
 
-function redondear(n: number, dec = 2): number {
+export function redondear(n: number, dec = 2): number {
   const f = 10 ** dec;
   return Math.round(n * f) / f;
 }
 
 /** Confianza por tamaño de muestra: crece con n y satura en 1 (proxy v0). */
-function confianzaMuestra(n: number): number {
+export function confianzaMuestra(n: number): number {
   return redondear(Math.min(1, n / N_PLENO));
 }
 
 /** Lecturas dentro de [ahora − dias, ahora]. */
-function enVentana(lecturas: Lectura[], ahora: Date, dias: number): Lectura[] {
+export function enVentana(lecturas: Lectura[], ahora: Date, dias: number): Lectura[] {
   const ahoraMs = ahora.getTime();
   const desde = ahoraMs - dias * MS_DIA;
   return lecturas.filter((l) => {

@@ -11,6 +11,7 @@ import type { ResultadoRuteo } from "@/lib/agents/tipos";
 import {
   leerLecturas14d,
   calcularPatrones,
+  calcularCruces,
   sincronizarPatrones,
   construirContextoPatrones,
 } from "@/lib/patrones";
@@ -297,20 +298,27 @@ export async function POST(request: Request) {
     await registrarObservabilidad(supabase, user.id, textoUsuario, ruteo);
   }
 
-  // ── PASO 6: PATRONES TEMPORALES (determinísticos, RLS) ───────────────────
+  // ── PASO 6+8: PATRONES TEMPORALES Y CRUZADOS (determinísticos, RLS) ───────
   // Se corre DESPUÉS de la observabilidad para incluir la lectura recién
-  // guardada. Recalcula (upsert) los patrones del usuario y arma el contexto
-  // privado para el prompt. NUNCA en emergencia: no se diluye el 15/15 con
-  // patrones. Todo con el cliente de sesión (RLS); los errores nunca rompen
-  // la respuesta.
+  // guardada. Recalcula (upsert) los patrones simples y cruzados del usuario y
+  // arma el contexto privado para el prompt. Los cruces (paso 8) relacionan
+  // sueño/estrés con la glucemia; son CORRELACIÓN, no causa, y la selección
+  // elige UN solo patrón (simple o cruzado) entre todos. NUNCA en emergencia:
+  // no se diluye el 15/15. Todo con el cliente de sesión (RLS); los errores
+  // nunca rompen la respuesta.
   let contextoPatrones = "";
   if (!ruteo.emergencia) {
     try {
       const ahora = new Date();
-      const lecturas = await leerLecturas14d(supabase, user.id, ahora);
+      const [lecturas, sueno, estres] = await Promise.all([
+        leerLecturas14d(supabase, user.id, ahora),
+        leerLecturas14d(supabase, user.id, ahora, "sueno"),
+        leerLecturas14d(supabase, user.id, ahora, "estres"),
+      ]);
       const patrones = calcularPatrones(lecturas, ahora);
-      await sincronizarPatrones(supabase, user.id, patrones);
-      contextoPatrones = construirContextoPatrones(patrones);
+      const cruces = calcularCruces(lecturas, sueno, estres, ahora);
+      await sincronizarPatrones(supabase, user.id, [...patrones, ...cruces]);
+      contextoPatrones = construirContextoPatrones(patrones, cruces);
     } catch (error) {
       console.error("[/api/chat] error en patrones:", error);
     }
