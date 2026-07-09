@@ -15,6 +15,12 @@ import {
   sincronizarPatrones,
   construirContextoPatrones,
 } from "@/lib/patrones";
+import { construirContextoPerfil } from "@/lib/perfil/contexto";
+import {
+  esClaseInsulina,
+  esTipoDiabetes,
+  type InsulinaPerfil,
+} from "@/lib/perfil/tipos";
 
 type EventoInsert = Database["public"]["Tables"]["evento"]["Insert"];
 
@@ -113,6 +119,54 @@ async function buildVariablesContext(
   ].filter((p): p is string => p !== null);
 
   return partes.join("\n");
+}
+
+/**
+ * Perfil del paso 9: tipo de diabetes, edad e insulinas activas. Cliente de
+ * sesión (RLS + filtro explícito por usuario_id): cada persona solo lee lo
+ * suyo. El bloque personaliza el TONO/contexto de Gluco, nunca los guardrails.
+ * `menstrua` se persiste pero A PROPÓSITO no se surfacea todavía (sin subagente
+ * hormonal). Devuelve "" si no hay nada (perfil vacío / errores). Nunca rompe.
+ */
+async function buildPerfilContext(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string
+): Promise<string> {
+  try {
+    const [perfilRes, insulinasRes] = await Promise.all([
+      supabase
+        .from("usuario")
+        .select("tipo_diabetes, anio_nacimiento, menstrua")
+        .eq("id", userId)
+        .maybeSingle(),
+      supabase
+        .from("insulina_usuario")
+        .select("clase, marca")
+        .eq("usuario_id", userId) // defensa en profundidad + intención explícita
+        .eq("activa", true)
+        .order("creado_en", { ascending: true }),
+    ]);
+
+    if (perfilRes.error) return "";
+
+    const fila = perfilRes.data;
+    const perfil = {
+      tipoDiabetes: esTipoDiabetes(fila?.tipo_diabetes)
+        ? fila.tipo_diabetes
+        : null,
+      anioNacimiento: fila?.anio_nacimiento ?? null,
+      menstrua: fila?.menstrua ?? null,
+    };
+
+    const insulinas: InsulinaPerfil[] = (insulinasRes.data ?? [])
+      .filter((i) => esClaseInsulina(i.clase))
+      .map((i) => ({ clase: i.clase as InsulinaPerfil["clase"], marca: i.marca }));
+
+    return construirContextoPerfil(perfil, insulinas, new Date().getFullYear());
+  } catch (error) {
+    console.error("[/api/chat] error leyendo perfil:", error);
+    return "";
+  }
 }
 
 type MessageParam = {
@@ -292,6 +346,13 @@ export async function POST(request: Request) {
     ? ""
     : await buildVariablesContext(supabase, user.id);
 
+  // Perfil del paso 9: tipo de diabetes, edad, insulinas (RLS). Personaliza el
+  // tono. Solo fuera de emergencia (el 15/15 es ciego al perfil);
+  // construirSystemPrompt igual lo vuelve a gatear.
+  const perfil = ruteo.emergencia
+    ? ""
+    : await buildPerfilContext(supabase, user.id);
+
   // Observabilidad: guardar ruteo (y glucemia si se detectó). Server-side only,
   // con el cliente de sesión del usuario (RLS aplicado).
   if (textoUsuario) {
@@ -337,6 +398,7 @@ export async function POST(request: Request) {
         historial,
         patrones: contextoPatrones,
         variables,
+        perfil,
       }),
       messages,
     });

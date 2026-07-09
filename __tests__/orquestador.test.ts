@@ -10,6 +10,7 @@ import { REGLAS_SEGURIDAD, INSTRUCCION_EMERGENCIA } from "@/lib/agents/seguridad
  */
 
 const BLOQUE_PATRONES = "[CONTEXTO PRIVADO — patrón observado, NO es diagnóstico] xyz";
+const BLOQUE_PERFIL = "[CONTEXTO PRIVADO — perfil que la persona compartió] abc";
 
 describe("construirSystemPrompt — invariantes de seguridad", () => {
   test("REGLAS_SEGURIDAD siempre va primero", () => {
@@ -56,5 +57,51 @@ describe("construirSystemPrompt — invariantes de seguridad", () => {
       historial: "",
     });
     expect(prompt).toBe(REGLAS_SEGURIDAD);
+  });
+
+  // ── Perfil (paso 9): misma disciplina que patrones ──────────────────────────
+  test("sin emergencia, el perfil se inyecta después de seguridad", () => {
+    const prompt = construirSystemPrompt({
+      agentes: [],
+      emergencia: false,
+      historial: "",
+      perfil: BLOQUE_PERFIL,
+    });
+    expect(prompt.startsWith(REGLAS_SEGURIDAD)).toBe(true);
+    expect(prompt).toContain(BLOQUE_PERFIL);
+    expect(prompt.indexOf(REGLAS_SEGURIDAD)).toBeLessThan(
+      prompt.indexOf(BLOQUE_PERFIL)
+    );
+  });
+
+  test("en emergencia, el perfil NUNCA se inyecta aunque se pase", () => {
+    const prompt = construirSystemPrompt({
+      agentes: ["insulina"],
+      emergencia: true,
+      historial: "",
+      perfil: BLOQUE_PERFIL,
+      patrones: BLOQUE_PATRONES,
+    });
+    expect(prompt.startsWith(REGLAS_SEGURIDAD)).toBe(true);
+    expect(prompt).toContain(INSTRUCCION_EMERGENCIA);
+    expect(prompt).not.toContain(BLOQUE_PERFIL);
+    // El 15/15 es ciego al perfil: consistente con patrones y variables.
+    expect(prompt).not.toContain(BLOQUE_PATRONES);
+  });
+
+  test("el perfil va después de las especialidades (no las pisa)", () => {
+    const prompt = construirSystemPrompt({
+      agentes: ["insulina"],
+      emergencia: false,
+      historial: "",
+      perfil: BLOQUE_PERFIL,
+    });
+    // seguridad → especialidad → perfil
+    expect(prompt.indexOf(REGLAS_SEGURIDAD)).toBeLessThan(
+      prompt.indexOf("[ESPECIALIDAD: INSULINA")
+    );
+    expect(prompt.indexOf("[ESPECIALIDAD: INSULINA")).toBeLessThan(
+      prompt.indexOf(BLOQUE_PERFIL)
+    );
   });
 });

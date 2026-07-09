@@ -13,15 +13,48 @@ export interface Database {
         Row: {
           id: string;
           tipo_diabetes: string | null;
+          anio_nacimiento: number | null;
+          menstrua: boolean | null;
+          onboarding_completo: boolean;
           creado_en: string;
         };
         Insert: {
           id: string;
           tipo_diabetes?: string | null;
+          anio_nacimiento?: number | null;
+          menstrua?: boolean | null;
+          onboarding_completo?: boolean;
           creado_en?: string;
         };
         Update: {
           tipo_diabetes?: string | null;
+          anio_nacimiento?: number | null;
+          menstrua?: boolean | null;
+          onboarding_completo?: boolean;
+        };
+        Relationships: [];
+      };
+      insulina_usuario: {
+        Row: {
+          id: string;
+          usuario_id: string;
+          clase: string;
+          marca: string | null;
+          activa: boolean;
+          creado_en: string;
+        };
+        Insert: {
+          id?: string;
+          usuario_id: string;
+          clase: string;
+          marca?: string | null;
+          activa?: boolean;
+          creado_en?: string;
+        };
+        Update: {
+          clase?: string;
+          marca?: string | null;
+          activa?: boolean;
         };
         Relationships: [];
       };

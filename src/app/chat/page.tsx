@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import Link from "next/link";
 import { signOut } from "@/app/login/actions";
 
 type Message = {
@@ -119,23 +120,44 @@ export default function ChatPage() {
             Asistente de glucemia
           </p>
         </div>
-        <form action={signOut} style={{ marginLeft: "auto" }}>
-          <button
-            type="submit"
+        <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+          <Link
+            href="/perfil"
+            aria-label="Tu perfil"
             style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
               background: "transparent",
               border: "1px solid rgba(255,255,255,0.4)",
               borderRadius: 8,
               color: "#FFFFFF",
               fontSize: 13,
               padding: "6px 12px",
-              cursor: "pointer",
+              textDecoration: "none",
               minHeight: 44,
             }}
           >
-            Salir
-          </button>
-        </form>
+            Perfil
+          </Link>
+          <form action={signOut}>
+            <button
+              type="submit"
+              style={{
+                background: "transparent",
+                border: "1px solid rgba(255,255,255,0.4)",
+                borderRadius: 8,
+                color: "#FFFFFF",
+                fontSize: 13,
+                padding: "6px 12px",
+                cursor: "pointer",
+                minHeight: 44,
+              }}
+            >
+              Salir
+            </button>
+          </form>
+        </div>
       </div>
 
       {/* Disclaimer */}

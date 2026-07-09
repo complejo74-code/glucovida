@@ -6,18 +6,42 @@ con datos del usuario tiene RLS habilitado y acota por `auth.uid()`.
 
 ## Tablas
 
-### `usuario` (migración 001)
+### `usuario` (migración 001; ampliada en 003 — paso 9)
 
-Perfil mínimo del usuario, 1:1 con `auth.users`.
+Perfil del usuario, 1:1 con `auth.users`. La migración 003 sumó el contexto que
+personaliza a los subagentes (tono/contexto, nunca los guardrails).
 
 | Columna | Tipo | Notas |
 |---------|------|-------|
 | `id` | `uuid` PK | `REFERENCES auth.users(id) ON DELETE CASCADE` |
-| `tipo_diabetes` | `text` | `CHECK IN ('DM1','DM2','LADA','DMG','prediabetes')` |
+| `tipo_diabetes` | `text` | `CHECK IN ('DM1','DM2','LADA','DMG','prediabetes','otro')` — `'otro'` agregado en 003 |
+| `anio_nacimiento` | `int` | edad sin fecha exacta (menos sensible). `CHECK (NULL OR 1900..2026)` |
+| `menstrua` | `boolean` | **nullable** a propósito: `null` = "prefiero no decir" o sin responder |
+| `onboarding_completo` | `boolean` | `NOT NULL DEFAULT false`. Gate de onboarding (paso 9) |
 | `creado_en` | `timestamptz` | `DEFAULT now()` |
 
 Se crea automáticamente al registrarse vía trigger `on_auth_user_created`
-(`handle_new_user`, `SECURITY DEFINER`).
+(`handle_new_user`, `SECURITY DEFINER`) con `onboarding_completo=false`; el
+onboarding hace **UPDATE** (nunca INSERT). `menstrua` se persiste pero todavía
+**no se inyecta** al system prompt (queda disponible para el futuro subagente
+hormonal). Ver `docs/perfil-onboarding-paso-9.md`.
+
+### `insulina_usuario` (migración 003 — paso 9)
+
+Insulinas que la persona declaró usar. Un usuario puede tener varias.
+
+| Columna | Tipo | Notas |
+|---------|------|-------|
+| `id` | `uuid` PK | `DEFAULT gen_random_uuid()` |
+| `usuario_id` | `uuid` NOT NULL | `REFERENCES auth.users(id) ON DELETE CASCADE` |
+| `clase` | `text` NOT NULL | `CHECK IN ('rapida','basal','lenta','mixta')` |
+| `marca` | `text` | nullable (puede no saberla) |
+| `activa` | `boolean` NOT NULL | `DEFAULT true`. Permite desactivar sin borrar historial |
+| `creado_en` | `timestamptz` NOT NULL | `DEFAULT now()` |
+
+Índice: `idx_insulina_usuario (usuario_id)`. Es un **registro informativo**: cero
+semántica de dosis. El bloque de perfil puede nombrar las insulinas reales de la
+persona, siempre como concepto educativo, jamás calculando una dosis.
 
 ### `evento` (migración 001)
 
@@ -71,15 +95,16 @@ relación causal** (ver `docs/patrones-cruzados-paso-8.md`).
 
 ## Row Level Security
 
-RLS habilitado en `usuario`, `evento` y `patron`. Todas las políticas acotan por
-`auth.uid()`; ningún dato cruza de un usuario a otro. Nada del flujo usa
-`service_role`.
+RLS habilitado en `usuario`, `evento`, `patron` e `insulina_usuario`. Todas las
+políticas acotan por `auth.uid()`; ningún dato cruza de un usuario a otro. Nada
+del flujo usa `service_role`.
 
 | Tabla | SELECT | INSERT | UPDATE | DELETE |
 |-------|--------|--------|--------|--------|
 | `usuario` | `auth.uid() = id` | `auth.uid() = id` | `auth.uid() = id` | — |
 | `evento` | `auth.uid() = usuario_id` | `auth.uid() = usuario_id` | — | — |
 | `patron` | `auth.uid() = usuario_id` | `auth.uid() = usuario_id` | `auth.uid() = usuario_id` | `auth.uid() = usuario_id` |
+| `insulina_usuario` | `auth.uid() = usuario_id` | `auth.uid() = usuario_id` | `auth.uid() = usuario_id` | `auth.uid() = usuario_id` |
 
-`patron` necesita `UPDATE` (upsert al recalcular) y `DELETE` (borrar patrones que
-dejaron de aplicar); por eso tiene las 4 políticas, a diferencia de `evento`.
+`patron` e `insulina_usuario` necesitan `UPDATE` y `DELETE` (recalcular/editar y
+borrar); por eso tienen las 4 políticas, a diferencia de `evento`.

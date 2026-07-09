@@ -106,6 +106,11 @@ export async function clasificar(
  * (no se diluye el 15/15 con patrones). Ese gate es estructural acá adentro
  * —no depende de que el caller pase patrones=""—, igual que la garantía de que
  * REGLAS_SEGURIDAD va primero.
+ *
+ * El perfil (paso 9) sigue exactamente la misma disciplina: bloque privado,
+ * DESPUÉS de seguridad y especialidades, y NUNCA en emergencia. En una hipo la
+ * respuesta es una sola para todos (protocolo 15/15): el perfil personaliza el
+ * tono fuera de la emergencia, jamás relaja los guardrails.
  */
 export function construirSystemPrompt(opciones: {
   agentes: AgenteId[];
@@ -113,6 +118,7 @@ export function construirSystemPrompt(opciones: {
   historial: string;
   patrones?: string;
   variables?: string;
+  perfil?: string;
 }): string {
   const {
     agentes,
@@ -120,6 +126,7 @@ export function construirSystemPrompt(opciones: {
     historial,
     patrones = "",
     variables = "",
+    perfil = "",
   } = opciones;
   const partes: string[] = [REGLAS_SEGURIDAD];
 
@@ -129,6 +136,14 @@ export function construirSystemPrompt(opciones: {
     for (const id of agentes) {
       partes.push(SUBAGENTES[id].especialidad);
     }
+  }
+
+  // Perfil (paso 9): personaliza tono/contexto. Gate estructural: NUNCA en
+  // emergencia (el 15/15 es ciego al perfil). Va antes de la memoria/patrones
+  // porque describe a la persona; el orden entre bloques privados no afecta la
+  // invariante de seguridad (que es: seguridad SIEMPRE primero).
+  if (perfil && !emergencia) {
+    partes.push(perfil);
   }
 
   if (historial) {

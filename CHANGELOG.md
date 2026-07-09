@@ -3,6 +3,29 @@
 Todos los cambios notables de este proyecto se documentan acá.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [Paso 9] — 2026-07-09 — Perfil y onboarding
+
+### Agregado
+- **Migración `003_perfil.sql`** (idempotente, NO destructiva). Amplía `usuario`: `anio_nacimiento int` (edad sin fecha exacta, menos sensible), `menstrua boolean` **nullable** (cubre "prefiero no decir"), `onboarding_completo boolean NOT NULL DEFAULT false`, y agrega `'otro'` al `CHECK` de `tipo_diabetes`. El RLS existente de `usuario` (`auth.uid() = id`) ya cubre las columnas nuevas.
+- **Tabla `insulina_usuario`** (un usuario, varias insulinas): `clase` (`rapida`/`basal`/`lenta`/`mixta`), `marca` (nullable), `activa` (para desactivar sin borrar historial). **RLS con las 4 políticas** acotadas por `auth.uid() = usuario_id` (agregar/desactivar/borrar desde el perfil editable). Nada usa `service_role`.
+- **Onboarding `/onboarding`** (wizard cliente, mobile-first, cálido): 4 pasos uno por pantalla — tipo de diabetes (botones), año de nacimiento, ¿menstruás? (Sí/No/**Prefiero no decir** → `null`, mismo peso visual), insulinas (clase + marca, varias, o "no uso"). Cada paso explica **por qué** se pregunta. **Todo salteable**: nunca bloquea el uso. Server Action `guardarOnboarding` guarda lo compartido y setea `onboarding_completo=true` **siempre** (incluso salteando todo).
+- **Perfil editable `/perfil`** (Server Component + form cliente): editar tipo/año/menstrua y agregar/quitar insulinas, todo bajo RLS. Acceso desde el header del chat.
+- **Personalización del prompt**: `buildPerfilContext` (`/api/chat`, RLS) arma un bloque de **CONTEXTO PRIVADO** con tipo de diabetes, edad e insulinas activas; nuevo parámetro `perfil` en `construirSystemPrompt`, inyectado después de seguridad y especialidades. El subagente insulina puede referirse a las insulinas reales de la persona (siempre educativo). **`menstrua` se persiste pero A PROPÓSITO no se surfacea todavía** (queda disponible para el futuro subagente hormonal; no se construyó nada hormonal).
+- **Gate de onboarding en `middleware.ts`** (función pura `requiereOnboarding`): si `onboarding_completo=false`, redirige a `/onboarding`. **FAILSAFE:** si el `SELECT` falla (error de red/Supabase → estado `null`), el gate **falla ABIERTO** hacia `/chat` — un problema de infra jamás deja a la persona trabada fuera de su app. Exentas: `/onboarding`, `/login`, `/auth`, `/api`.
+- Tests: `__tests__/perfil-contexto.test.ts` (7), `__tests__/perfil-gate.test.ts` (7, incluye el fail-open) y 3 nuevos en `orquestador.test.ts` (perfil tras seguridad, nunca en emergencia, no pisa especialidades). Total **156 tests**.
+- Documentación en `docs/perfil-onboarding-paso-9.md` y `DB_SCHEMA.md`.
+
+### Cambiado
+- `construirSystemPrompt` acepta `perfil`, con el **mismo gate estructural** que patrones/variables: **nunca en emergencia** (el protocolo 15/15 es ciego al perfil — una sola respuesta para todos). El perfil personaliza **tono y contexto, jamás los guardrails**: sin prescribir dosis, con o sin perfil.
+- `/api/chat` lee el perfil (RLS, en paralelo) e inyecta el bloque solo fuera de emergencia; cualquier error devuelve `""` y nunca rompe la respuesta.
+- `middleware.ts` protege `/chat`, `/perfil` y `/onboarding` (antes solo `/chat`).
+- Header del chat: acceso a `/perfil`.
+
+### Notas del code review
+- Verificado: (a) RLS en `usuario` ampliado + `insulina_usuario` (4 políticas, cliente de sesión, cero `service_role`); (b) datos sensibles nunca cruzan de usuario (filtro `user.id` + RLS, `""` ante error, perfil como contexto privado no crudo); (c) guardrails intactos con y sin perfil (doble gate de emergencia, tests que lo fijan).
+- Correcciones aplicadas: (1) cierre de onboarding resiliente — si el UPDATE del perfil falla, se reintenta solo `onboarding_completo=true` para no rebotar a la persona en loop; (2) `/api` exento del gate (un `fetch` no debe recibir un redirect a HTML); (3) `finalizar()` con try/finally para no trabar el botón ante un fallo de red.
+- Nota abierta (baja): los `redirect` del middleware no copian las cookies de sesión refrescadas de `supabaseResponse` (patrón pre-existente del repo); ante rotación de token se pierde la cookie nueva. Pendiente de decisión.
+
 ## [Paso 8] — 2026-07-09 — Patrones cruzados v0
 
 ### Agregado
