@@ -5,23 +5,45 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import {
   esClaseInsulina,
+  esSexo,
   esTipoDiabetes,
   type ClaseInsulina,
+  type Sexo,
   type TipoDiabetes,
 } from "@/lib/perfil/tipos";
 
-/** Payload del wizard. Todo opcional: saltear cualquier cosa es válido. */
+/** Payload del wizard. Todo opcional salvo el nombre (requerido en la UI). */
 export interface OnboardingPayload {
+  nombre: string | null;
   tipoDiabetes: TipoDiabetes | null;
   anioNacimiento: number | null;
-  menstrua: boolean | null;
+  sexo: Sexo | null;
+  pesoKg: number | null;
+  alturaCm: number | null;
   insulinas: Array<{ clase: ClaseInsulina; marca: string | null }>;
+}
+
+/** Saneo defensivo del peso: número finito en rango, o null. */
+function sanearPeso(peso: number | null): number | null {
+  return typeof peso === "number" && Number.isFinite(peso) && peso >= 20 && peso <= 400
+    ? peso
+    : null;
+}
+
+/** Saneo defensivo de la altura: entero en rango, o null. */
+function sanearAltura(altura: number | null): number | null {
+  return typeof altura === "number" &&
+    Number.isInteger(altura) &&
+    altura >= 50 &&
+    altura <= 250
+    ? altura
+    : null;
 }
 
 /**
  * Cierra el onboarding: guarda lo que la persona haya querido compartir y marca
- * onboarding_completo=true SIEMPRE (incluso si salteó todo). Nunca bloquea el
- * uso: ante datos faltantes guarda null y sigue. Cliente de sesión → RLS
+ * onboarding_completo=true SIEMPRE (incluso si salteó casi todo). Nunca bloquea
+ * el uso: ante datos faltantes guarda null y sigue. Cliente de sesión → RLS
  * (auth.uid()=id / usuario_id) valida cada escritura; nada usa service_role.
  */
 export async function guardarOnboarding(payload: OnboardingPayload) {
@@ -33,6 +55,11 @@ export async function guardarOnboarding(payload: OnboardingPayload) {
   if (!user) redirect("/login");
 
   // Saneo defensivo (no confiamos en el cliente): valores inválidos → null.
+  const nombre =
+    typeof payload.nombre === "string" && payload.nombre.trim()
+      ? payload.nombre.trim().slice(0, 40)
+      : null;
+
   const tipoDiabetes = esTipoDiabetes(payload.tipoDiabetes)
     ? payload.tipoDiabetes
     : null;
@@ -46,16 +73,20 @@ export async function guardarOnboarding(payload: OnboardingPayload) {
       ? anio
       : null;
 
-  const menstrua =
-    typeof payload.menstrua === "boolean" ? payload.menstrua : null;
+  const sexo = esSexo(payload.sexo) ? payload.sexo : null;
+  const pesoKg = sanearPeso(payload.pesoKg);
+  const alturaCm = sanearAltura(payload.alturaCm);
 
   // Perfil + cierre del onboarding en un solo UPDATE (RLS: auth.uid()=id).
   const { error: errPerfil } = await supabase
     .from("usuario")
     .update({
+      nombre,
       tipo_diabetes: tipoDiabetes,
       anio_nacimiento: anioNacimiento,
-      menstrua,
+      sexo,
+      peso_kg: pesoKg,
+      altura_cm: alturaCm,
       onboarding_completo: true,
     })
     .eq("id", user.id);
@@ -75,7 +106,7 @@ export async function guardarOnboarding(payload: OnboardingPayload) {
     }
   }
 
-  // Insulinas válidas (si eligió "ninguna", el array viene vacío → no inserta).
+  // Insulinas válidas (los slots en blanco no llegan; array vacío → no inserta).
   const insulinas = (payload.insulinas ?? [])
     .filter((i) => esClaseInsulina(i.clase))
     .slice(0, 12) // techo defensivo

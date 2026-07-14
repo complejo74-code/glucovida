@@ -6,25 +6,32 @@ con datos del usuario tiene RLS habilitado y acota por `auth.uid()`.
 
 ## Tablas
 
-### `usuario` (migración 001; ampliada en 003 — paso 9)
+### `usuario` (migración 001; ampliada en 003 — paso 9; y en 004 — paso 9.5)
 
 Perfil del usuario, 1:1 con `auth.users`. La migración 003 sumó el contexto que
-personaliza a los subagentes (tono/contexto, nunca los guardrails).
+personaliza a los subagentes (tono/contexto, nunca los guardrails); la 004 lo
+amplió con nombre, sexo, peso y altura.
 
 | Columna | Tipo | Notas |
 |---------|------|-------|
 | `id` | `uuid` PK | `REFERENCES auth.users(id) ON DELETE CASCADE` |
+| `nombre` | `text` | cómo quiere que Gluco la/lo llame. **Requerido en la UI del onboarding, nullable en DB** (agregarlo NOT NULL sobre filas existentes rompería la no-destructividad). Agregado en 004 |
 | `tipo_diabetes` | `text` | `CHECK IN ('DM1','DM2','LADA','DMG','prediabetes','otro')` — `'otro'` agregado en 003 |
 | `anio_nacimiento` | `int` | edad sin fecha exacta (menos sensible). `CHECK (NULL OR 1900..2026)` |
-| `menstrua` | `boolean` | **nullable** a propósito: `null` = "prefiero no decir" o sin responder |
+| `sexo` | `text` | `CHECK (NULL OR IN ('masculino','femenino','prefiero_no_decir'))`. `null` = no respondió; `prefiero_no_decir` = eligió no decir (distinto). Agregado en 004 |
+| `peso_kg` | `numeric` | `CHECK (NULL OR 20..400)`. Contexto interno para porciones; **nunca material de comentario evaluativo**. Agregado en 004 |
+| `altura_cm` | `int` | `CHECK (NULL OR 50..250)`. Con `peso_kg` se deriva el IMC (contexto interno). Agregado en 004 |
+| `menstrua` | `boolean` | **nullable**. Persistida pero el onboarding **ya no la pregunta** (paso 9.5); se conserva para el futuro subagente hormonal |
 | `onboarding_completo` | `boolean` | `NOT NULL DEFAULT false`. Gate de onboarding (paso 9) |
 | `creado_en` | `timestamptz` | `DEFAULT now()` |
 
 Se crea automáticamente al registrarse vía trigger `on_auth_user_created`
 (`handle_new_user`, `SECURITY DEFINER`) con `onboarding_completo=false`; el
-onboarding hace **UPDATE** (nunca INSERT). `menstrua` se persiste pero todavía
-**no se inyecta** al system prompt (queda disponible para el futuro subagente
-hormonal). Ver `docs/perfil-onboarding-paso-9.md`.
+onboarding hace **UPDATE** (nunca INSERT). El RLS de `usuario` (`auth.uid() = id`)
+ya cubre todas las columnas nuevas de 004: no hizo falta ninguna policy nueva.
+`menstrua` se persiste pero **no se inyecta** al system prompt (queda para el
+futuro subagente hormonal); `sexo` solo se surfacea si es `masculino`/`femenino`.
+Ver `docs/perfil-onboarding-paso-9.md`.
 
 ### `insulina_usuario` (migración 003 — paso 9)
 

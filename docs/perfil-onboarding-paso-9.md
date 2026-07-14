@@ -93,3 +93,64 @@ form cliente para editar tipo/año/menstrua y agregar/quitar insulinas. No toca
 (`ADD COLUMN IF NOT EXISTS`, `DROP CONSTRAINT IF EXISTS` + recreate, `CREATE
 TABLE IF NOT EXISTS`, `DROP POLICY IF EXISTS` + create). **La aplica el dueño de
 la DB manualmente.**
+
+---
+
+# Perfil ampliado (paso 9.5)
+
+Afina el onboarding para que el contexto personalice mejor **el registro** con
+que Gluco acompaña (un adolescente, un adulto y una persona mayor necesitan
+tonos distintos), sin tocar el diseño visual (eso es un paso aparte con el
+branding) y **sin relajar jamás los guardrails**.
+
+## Qué cambió
+
+- **Nombre (requerido).** Primer paso del onboarding: "¿Cómo querés que te
+  llame?". Es lo único obligatorio. En DB `nombre` es **nullable** (agregarlo
+  `NOT NULL` sobre filas existentes rompería la no-destructividad); la
+  obligatoriedad se hace en la UI. Gluco lo usa con naturalidad, sin abusar.
+- **Sexo.** Reemplaza a la pregunta de menstruación en el wizard:
+  `masculino` / `femenino` / `prefiero no decir`. Se surfacea al contexto **solo
+  si es masculino/femenino** (el resto no aporta tono). **Menstruá ya no se
+  pregunta** (la columna se conserva para el futuro subagente hormonal).
+- **Peso y altura.** `peso_kg` (numeric) + `altura_cm` (int), ambos con `CHECK`
+  de rango sano y nullable. Del par se deriva el **IMC**.
+- **Insulinas taxativas.** El texto libre de marca pasa a una **lista real del
+  mercado argentino** agrupada por clase (rápidas: Humalog/NovoRapid/Apidra/Fiasp
+  · basales-lentas: Lantus/Toujeo/Tresiba/Levemir/NPH · mixtas:
+  NovoMix/Humalog Mix), siempre con **"Otra"** (texto libre) y **"No sé"**. El
+  onboarding pide la **rápida** y la **basal/lenta por separado** (dos slots), y
+  las mixtas se cargan por "Otra". En `/perfil` se elige clase → marca (dropdown
+  por clase, incluye mixtas). Catálogo en `src/lib/perfil/tipos.ts`.
+
+## Onboarding (ahora 6 pasos)
+
+Nombre (**requerido**) → tipo de diabetes → año → sexo → peso/altura →
+insulinas (dos slots). Cada campo explica **por qué** en una línea. Todo
+salteable **menos el nombre**.
+
+## Uso en el contexto privado
+
+`construirContextoPerfil` inyecta **nombre, edad, sexo, peso, altura e IMC**
+(además de tipo e insulinas), con el mismo gate de siempre: **después de
+seguridad, nunca en emergencia**. Guardrails reforzados en el bloque:
+
+- **El peso y el IMC son contexto interno, JAMÁS material de comentario
+  evaluativo.** Nada de "deberías bajar de peso", nada de dietas para adelgazar;
+  si la persona no trae el tema del peso, Gluco tampoco.
+- El **nombre** se usa con naturalidad, sin recitarlo ni repetirlo.
+- Innegociable: **sin dosis, siempre**, con o sin perfil.
+
+## Seguridad (code review del 9.5)
+
+RLS: las columnas nuevas viven en `usuario`, cubiertas por su policy
+`auth.uid() = id` — **no hizo falta ninguna policy nueva**. Todo con cliente de
+sesión, cero `service_role`. Doble gate de emergencia intacto. Corrección
+aplicada: "prefiero no decir" guarda `sexo='prefiero_no_decir'` (no `null`), para
+que onboarding y `/perfil` registren la misma intención.
+
+## Migración
+
+`supabase/migrations/004_perfil_ampliado.sql`, idempotente y NO destructiva
+(`ADD COLUMN IF NOT EXISTS`, `DROP CONSTRAINT IF EXISTS` + recreate). Conserva la
+columna `menstrua`. **La aplica el dueño de la DB manualmente.**

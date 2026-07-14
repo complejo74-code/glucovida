@@ -12,23 +12,35 @@ export interface Database {
       usuario: {
         Row: {
           id: string;
+          nombre: string | null;
           tipo_diabetes: string | null;
           anio_nacimiento: number | null;
+          sexo: string | null;
+          peso_kg: number | null;
+          altura_cm: number | null;
           menstrua: boolean | null;
           onboarding_completo: boolean;
           creado_en: string;
         };
         Insert: {
           id: string;
+          nombre?: string | null;
           tipo_diabetes?: string | null;
           anio_nacimiento?: number | null;
+          sexo?: string | null;
+          peso_kg?: number | null;
+          altura_cm?: number | null;
           menstrua?: boolean | null;
           onboarding_completo?: boolean;
           creado_en?: string;
         };
         Update: {
+          nombre?: string | null;
           tipo_diabetes?: string | null;
           anio_nacimiento?: number | null;
+          sexo?: string | null;
+          peso_kg?: number | null;
+          altura_cm?: number | null;
           menstrua?: boolean | null;
           onboarding_completo?: boolean;
         };

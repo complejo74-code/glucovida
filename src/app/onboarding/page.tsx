@@ -2,9 +2,13 @@
 
 import { useState } from "react";
 import {
-  OPCIONES_CLASE_INSULINA,
+  MARCAS_BASAL_LENTA,
+  MARCAS_RAPIDAS,
+  OPCIONES_SEXO,
   OPCIONES_TIPO_DIABETES,
+  claseDeMarca,
   type ClaseInsulina,
+  type Sexo,
   type TipoDiabetes,
 } from "@/lib/perfil/tipos";
 import { guardarOnboarding } from "./actions";
@@ -16,20 +20,45 @@ const TEXTO = "#0F172A";
 const MUTED = "#5B6B7C";
 const BORDE = "#E6EEF5";
 
-type InsulinaDraft = { clase: ClaseInsulina; marca: string };
+/**
+ * Estado de un slot de insulina (rápida o basal/lenta). `seleccion` guarda el
+ * valor del <select>: "" (no usa / salteó), una marca conocida, "otra" (texto
+ * libre) o "no_se" (usa pero no sabe la marca).
+ */
+type SlotInsulina = { seleccion: string; marcaLibre: string };
 
-const TOTAL_PASOS = 4;
+const SLOT_VACIO: SlotInsulina = { seleccion: "", marcaLibre: "" };
+
+const TOTAL_PASOS = 6;
+
+/** Traduce un slot a la insulina a persistir, o null si no corresponde. */
+function slotAInsulina(
+  slot: SlotInsulina,
+  claseDefault: ClaseInsulina
+): { clase: ClaseInsulina; marca: string | null } | null {
+  const sel = slot.seleccion;
+  if (!sel) return null; // no usa / salteó
+  if (sel === "no_se") return { clase: claseDefault, marca: null };
+  if (sel === "otra") {
+    const marca = slot.marcaLibre.trim();
+    return { clase: claseDefault, marca: marca ? marca : null };
+  }
+  // Marca conocida: la clase real de la marca manda (NPH → lenta, etc.).
+  return { clase: claseDeMarca(sel) ?? claseDefault, marca: sel };
+}
 
 export default function OnboardingPage() {
   const [paso, setPaso] = useState(0);
   const [enviando, setEnviando] = useState(false);
 
+  const [nombre, setNombre] = useState("");
   const [tipoDiabetes, setTipoDiabetes] = useState<TipoDiabetes | null>(null);
   const [anio, setAnio] = useState<string>("");
-  const [menstrua, setMenstrua] = useState<boolean | null>(null);
-  const [insulinas, setInsulinas] = useState<InsulinaDraft[]>([]);
-  const [claseDraft, setClaseDraft] = useState<ClaseInsulina | "">("");
-  const [marcaDraft, setMarcaDraft] = useState("");
+  const [sexo, setSexo] = useState<Sexo | null>(null);
+  const [peso, setPeso] = useState<string>("");
+  const [altura, setAltura] = useState<string>("");
+  const [slotRapida, setSlotRapida] = useState<SlotInsulina>(SLOT_VACIO);
+  const [slotBasal, setSlotBasal] = useState<SlotInsulina>(SLOT_VACIO);
 
   function avanzar() {
     if (paso < TOTAL_PASOS - 1) setPaso((p) => p + 1);
@@ -40,26 +69,28 @@ export default function OnboardingPage() {
     if (paso > 0) setPaso((p) => p - 1);
   }
 
-  function agregarInsulina() {
-    if (!claseDraft) return;
-    setInsulinas((prev) => [...prev, { clase: claseDraft, marca: marcaDraft.trim() }]);
-    setClaseDraft("");
-    setMarcaDraft("");
-  }
-
   async function finalizar() {
     if (enviando) return;
     setEnviando(true);
+
     const anioNum = anio.trim() ? parseInt(anio, 10) : NaN;
+    const pesoNum = peso.trim() ? parseFloat(peso) : NaN;
+    const alturaNum = altura.trim() ? parseInt(altura, 10) : NaN;
+
+    const insulinas = [
+      slotAInsulina(slotRapida, "rapida"),
+      slotAInsulina(slotBasal, "basal"),
+    ].filter((i): i is { clase: ClaseInsulina; marca: string | null } => i !== null);
+
     try {
       await guardarOnboarding({
+        nombre: nombre.trim() ? nombre.trim() : null,
         tipoDiabetes,
         anioNacimiento: Number.isInteger(anioNum) ? anioNum : null,
-        menstrua,
-        insulinas: insulinas.map((i) => ({
-          clase: i.clase,
-          marca: i.marca ? i.marca : null,
-        })),
+        sexo,
+        pesoKg: Number.isFinite(pesoNum) ? pesoNum : null,
+        alturaCm: Number.isInteger(alturaNum) ? alturaNum : null,
+        insulinas,
       });
       // guardarOnboarding hace redirect('/chat') en el caso feliz.
     } catch (error) {
@@ -103,8 +134,8 @@ export default function OnboardingPage() {
             Qué bueno tenerte acá
           </h1>
           <p style={{ color: MUTED, fontSize: 14, margin: "6px 0 0", lineHeight: 1.5 }}>
-            Antes de arrancar, ¿me contás un poco de vos? Son cuatro preguntas
-            cortas y podés saltar las que quieras.
+            Antes de arrancar, ¿me contás un poco de vos? Son unas preguntas
+            cortas y, menos tu nombre, podés saltar las que quieras.
           </p>
         </div>
 
@@ -142,6 +173,10 @@ export default function OnboardingPage() {
           }}
         >
           {paso === 0 && (
+            <PasoNombre valor={nombre} onChange={setNombre} onContinuar={avanzar} />
+          )}
+
+          {paso === 1 && (
             <PasoTipo
               seleccion={tipoDiabetes}
               onSelect={(v) => {
@@ -151,44 +186,42 @@ export default function OnboardingPage() {
             />
           )}
 
-          {paso === 1 && (
-            <PasoAnio
-              valor={anio}
-              onChange={setAnio}
-              onContinuar={avanzar}
-            />
+          {paso === 2 && (
+            <PasoAnio valor={anio} onChange={setAnio} onContinuar={avanzar} />
           )}
 
-          {paso === 2 && (
-            <PasoMenstrua
+          {paso === 3 && (
+            <PasoSexo
               onElegir={(v) => {
-                setMenstrua(v);
+                setSexo(v);
                 avanzar();
               }}
             />
           )}
 
-          {paso === 3 && (
+          {paso === 4 && (
+            <PasoCuerpo
+              peso={peso}
+              altura={altura}
+              onPeso={setPeso}
+              onAltura={setAltura}
+              onContinuar={avanzar}
+            />
+          )}
+
+          {paso === 5 && (
             <PasoInsulinas
-              insulinas={insulinas}
-              claseDraft={claseDraft}
-              marcaDraft={marcaDraft}
-              onClaseDraft={setClaseDraft}
-              onMarcaDraft={setMarcaDraft}
-              onAgregar={agregarInsulina}
-              onQuitar={(idx) =>
-                setInsulinas((prev) => prev.filter((_, i) => i !== idx))
-              }
-              onNinguna={() => {
-                setInsulinas([]);
-                finalizar();
-              }}
+              slotRapida={slotRapida}
+              slotBasal={slotBasal}
+              onSlotRapida={setSlotRapida}
+              onSlotBasal={setSlotBasal}
               onFinalizar={finalizar}
               enviando={enviando}
             />
           )}
 
-          {/* Acciones comunes: saltar (siempre) + atrás (desde el 2º paso) */}
+          {/* Acciones comunes: atrás (desde el 2º paso) + saltar. El nombre (0)
+              no se saltea; en sexo (3) "prefiero no decir" YA es el saltar. */}
           <div
             style={{
               display: "flex",
@@ -209,9 +242,7 @@ export default function OnboardingPage() {
               <span />
             )}
 
-            {/* En el paso del ciclo, "prefiero no decir" YA es la opción de
-                saltar (mismo peso visual): no repetimos el link acá. */}
-            {paso !== 2 && (
+            {paso !== 0 && paso !== 3 && (
               <button
                 onClick={avanzar}
                 style={linkBtn(AZUL_FUERTE)}
@@ -232,10 +263,66 @@ export default function OnboardingPage() {
             lineHeight: 1.5,
           }}
         >
-          Nada de esto es obligatorio. Gluco te acompaña igual — con lo que
+          Casi nada de esto es obligatorio. Gluco te acompaña igual — con lo que
           quieras contar, te entiende un poco mejor.
         </p>
       </div>
+    </div>
+  );
+}
+
+// ── Paso 0: nombre (requerido) ──────────────────────────────────────────────
+function PasoNombre({
+  valor,
+  onChange,
+  onContinuar,
+}: {
+  valor: string;
+  onChange: (v: string) => void;
+  onContinuar: () => void;
+}) {
+  const valido = valor.trim().length > 0;
+  return (
+    <div>
+      <Pregunta
+        titulo="¿Cómo querés que te llame?"
+        porque="Es lo único que te pedimos sí o sí, para que Gluco te hable por tu nombre."
+      />
+      <input
+        type="text"
+        value={valor}
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && valido) onContinuar();
+        }}
+        placeholder="Tu nombre o como quieras que te diga"
+        maxLength={40}
+        autoFocus
+        style={{
+          width: "100%",
+          padding: "12px 14px",
+          border: `1px solid ${BORDE}`,
+          borderRadius: 10,
+          fontSize: 16,
+          color: TEXTO,
+          backgroundColor: "#F8FAFC",
+          outline: "none",
+          boxSizing: "border-box",
+        }}
+      />
+      <button
+        onClick={onContinuar}
+        disabled={!valido}
+        style={{
+          ...primaryBtn,
+          marginTop: 16,
+          backgroundColor: valido ? AZUL : BORDE,
+          color: valido ? "#FFFFFF" : MUTED,
+          cursor: valido ? "pointer" : "not-allowed",
+        }}
+      >
+        Continuar
+      </button>
     </div>
   );
 }
@@ -326,130 +413,201 @@ function PasoAnio({
   );
 }
 
-// ── Paso 3: ciclo menstrual ─────────────────────────────────────────────────
-function PasoMenstrua({ onElegir }: { onElegir: (v: boolean | null) => void }) {
+// ── Paso 3: sexo ────────────────────────────────────────────────────────────
+function PasoSexo({ onElegir }: { onElegir: (v: Sexo) => void }) {
   return (
     <div>
       <Pregunta
-        titulo="¿Menstruás?"
-        porque="Las hormonas del ciclo a veces mueven la glucemia. Es algo íntimo: si preferís no decir, está perfecto."
+        titulo="¿Cuál es tu sexo?"
+        porque="Algunas cosas del cuerpo funcionan distinto. Si preferís no decir, está perfecto."
       />
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        <button onClick={() => onElegir(true)} style={opcionBtn(false)}>
-          Sí
-        </button>
-        <button onClick={() => onElegir(false)} style={opcionBtn(false)}>
-          No
-        </button>
-        {/* Mismo peso visual que las otras: saltar debe sentirse igual de natural. */}
-        <button onClick={() => onElegir(null)} style={opcionBtn(false)}>
-          Prefiero no decir
-        </button>
+        {OPCIONES_SEXO.map((o) => (
+          <button
+            key={o.valor}
+            onClick={() => onElegir(o.valor)}
+            style={opcionBtn(false)}
+          >
+            {o.etiqueta}
+          </button>
+        ))}
       </div>
     </div>
   );
 }
 
-// ── Paso 4: insulinas ───────────────────────────────────────────────────────
+// ── Paso 4: peso y altura ───────────────────────────────────────────────────
+function PasoCuerpo({
+  peso,
+  altura,
+  onPeso,
+  onAltura,
+  onContinuar,
+}: {
+  peso: string;
+  altura: string;
+  onPeso: (v: string) => void;
+  onAltura: (v: string) => void;
+  onContinuar: () => void;
+}) {
+  return (
+    <div>
+      <Pregunta
+        titulo="¿Tu peso y altura?"
+        porque="Nos ayuda a entender mejor las porciones y tu contexto. Nunca para juzgar tu cuerpo."
+      />
+      <div style={{ display: "flex", gap: 10 }}>
+        <div style={{ flex: 1 }}>
+          <label style={etiquetaInput}>Peso (kg)</label>
+          <input
+            type="number"
+            inputMode="decimal"
+            value={peso}
+            onChange={(e) => onPeso(e.target.value)}
+            placeholder="Ej: 70"
+            min={20}
+            max={400}
+            style={inputCentrado}
+          />
+        </div>
+        <div style={{ flex: 1 }}>
+          <label style={etiquetaInput}>Altura (cm)</label>
+          <input
+            type="number"
+            inputMode="numeric"
+            value={altura}
+            onChange={(e) => onAltura(e.target.value)}
+            placeholder="Ej: 170"
+            min={50}
+            max={250}
+            style={inputCentrado}
+          />
+        </div>
+      </div>
+      <button
+        onClick={onContinuar}
+        style={{ ...primaryBtn, marginTop: 16, backgroundColor: AZUL, color: "#FFFFFF" }}
+      >
+        Continuar
+      </button>
+    </div>
+  );
+}
+
+// ── Paso 5: insulinas (dos slots) ───────────────────────────────────────────
 function PasoInsulinas({
-  insulinas,
-  claseDraft,
-  marcaDraft,
-  onClaseDraft,
-  onMarcaDraft,
-  onAgregar,
-  onQuitar,
-  onNinguna,
+  slotRapida,
+  slotBasal,
+  onSlotRapida,
+  onSlotBasal,
   onFinalizar,
   enviando,
 }: {
-  insulinas: InsulinaDraft[];
-  claseDraft: ClaseInsulina | "";
-  marcaDraft: string;
-  onClaseDraft: (v: ClaseInsulina | "") => void;
-  onMarcaDraft: (v: string) => void;
-  onAgregar: () => void;
-  onQuitar: (idx: number) => void;
-  onNinguna: () => void;
+  slotRapida: SlotInsulina;
+  slotBasal: SlotInsulina;
+  onSlotRapida: (s: SlotInsulina) => void;
+  onSlotBasal: (s: SlotInsulina) => void;
   onFinalizar: () => void;
   enviando: boolean;
 }) {
   return (
     <div>
       <Pregunta
-        titulo="¿Usás insulina?"
-        porque="Si nos contás cuáles, Gluco puede hablarte de las tuyas. Siempre como info, nunca te va a indicar una dosis."
+        titulo="¿Qué insulina usás?"
+        porque="Así Gluco sabe de qué insulina hablás cuando la mencionás. Siempre como info, nunca te va a indicar una dosis."
       />
 
-      {/* Insulinas ya agregadas */}
-      {insulinas.length > 0 && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
-          {insulinas.map((i, idx) => {
-            const etiqueta =
-              OPCIONES_CLASE_INSULINA.find((o) => o.valor === i.clase)?.etiqueta ??
-              i.clase;
-            return (
-              <div
-                key={idx}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  padding: "10px 14px",
-                  backgroundColor: AZUL_AIRE,
-                  borderRadius: 10,
-                  fontSize: 14,
-                  color: TEXTO,
-                }}
-              >
-                <span>
-                  {etiqueta}
-                  {i.marca ? ` · ${i.marca}` : ""}
-                </span>
-                <button
-                  onClick={() => onQuitar(idx)}
-                  aria-label="Quitar"
-                  style={{ ...linkBtn(MUTED), fontSize: 18, padding: 0 }}
-                >
-                  ×
-                </button>
-              </div>
-            );
-          })}
-        </div>
-      )}
+      <SlotSelector
+        titulo="Tu insulina rápida"
+        ayuda="La de las comidas"
+        marcas={MARCAS_RAPIDAS}
+        slot={slotRapida}
+        onChange={onSlotRapida}
+      />
+      <div style={{ height: 16 }} />
+      <SlotSelector
+        titulo="Tu insulina basal / lenta"
+        ayuda="La de fondo, de acción prolongada"
+        marcas={MARCAS_BASAL_LENTA}
+        slot={slotBasal}
+        onChange={onSlotBasal}
+      />
 
-      {/* Alta de una insulina */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        <select
-          value={claseDraft}
-          onChange={(e) => onClaseDraft(e.target.value as ClaseInsulina | "")}
-          style={{
-            width: "100%",
-            padding: "12px 14px",
-            border: `1px solid ${BORDE}`,
-            borderRadius: 10,
-            fontSize: 15,
-            color: claseDraft ? TEXTO : MUTED,
-            backgroundColor: "#F8FAFC",
-            outline: "none",
-            boxSizing: "border-box",
-          }}
-        >
-          <option value="">Elegí el tipo…</option>
-          {OPCIONES_CLASE_INSULINA.map((o) => (
-            <option key={o.valor} value={o.valor}>
-              {o.etiqueta} — {o.ayuda}
-            </option>
-          ))}
-        </select>
+      <p style={{ color: MUTED, fontSize: 12, margin: "16px 0 0", lineHeight: 1.5 }}>
+        ¿Usás una premezcla (tipo NovoMix o Humalog Mix) u otra? Elegí “Otra” y
+        escribila. Si no usás insulina, dejá los dos en blanco.
+      </p>
+
+      <button
+        onClick={onFinalizar}
+        disabled={enviando}
+        style={{
+          ...primaryBtn,
+          marginTop: 20,
+          backgroundColor: AZUL,
+          color: "#FFFFFF",
+          opacity: enviando ? 0.7 : 1,
+        }}
+      >
+        {enviando ? "Guardando…" : "Listo, terminé"}
+      </button>
+    </div>
+  );
+}
+
+function SlotSelector({
+  titulo,
+  ayuda,
+  marcas,
+  slot,
+  onChange,
+}: {
+  titulo: string;
+  ayuda: string;
+  marcas: ReadonlyArray<{ marca: string; clase: ClaseInsulina }>;
+  slot: SlotInsulina;
+  onChange: (s: SlotInsulina) => void;
+}) {
+  return (
+    <div>
+      <p style={{ color: TEXTO, fontSize: 14, fontWeight: 700, margin: "0 0 2px" }}>
+        {titulo}
+      </p>
+      <p style={{ color: MUTED, fontSize: 12, margin: "0 0 8px" }}>{ayuda}</p>
+      <select
+        value={slot.seleccion}
+        onChange={(e) => onChange({ seleccion: e.target.value, marcaLibre: "" })}
+        style={{
+          width: "100%",
+          padding: "12px 14px",
+          border: `1px solid ${BORDE}`,
+          borderRadius: 10,
+          fontSize: 15,
+          color: slot.seleccion ? TEXTO : MUTED,
+          backgroundColor: "#F8FAFC",
+          outline: "none",
+          boxSizing: "border-box",
+        }}
+      >
+        <option value="">No uso / no aplica</option>
+        {marcas.map((m) => (
+          <option key={m.marca} value={m.marca}>
+            {m.marca}
+          </option>
+        ))}
+        <option value="no_se">Uso pero no sé la marca</option>
+        <option value="otra">Otra (escribir)</option>
+      </select>
+      {slot.seleccion === "otra" && (
         <input
           type="text"
-          value={marcaDraft}
-          onChange={(e) => onMarcaDraft(e.target.value)}
-          placeholder="Marca (opcional): Lantus, Humalog…"
+          value={slot.marcaLibre}
+          onChange={(e) => onChange({ ...slot, marcaLibre: e.target.value })}
+          placeholder="¿Cuál?"
+          maxLength={80}
           style={{
             width: "100%",
+            marginTop: 8,
             padding: "12px 14px",
             border: `1px solid ${BORDE}`,
             borderRadius: 10,
@@ -460,43 +618,7 @@ function PasoInsulinas({
             boxSizing: "border-box",
           }}
         />
-        <button
-          onClick={onAgregar}
-          disabled={!claseDraft}
-          style={{
-            ...secondaryBtn,
-            opacity: claseDraft ? 1 : 0.5,
-            cursor: claseDraft ? "pointer" : "not-allowed",
-          }}
-        >
-          + Agregar esta insulina
-        </button>
-      </div>
-
-      {/* Cierre */}
-      <div style={{ marginTop: 20, display: "flex", flexDirection: "column", gap: 10 }}>
-        <button
-          onClick={onFinalizar}
-          disabled={enviando}
-          style={{
-            ...primaryBtn,
-            backgroundColor: AZUL,
-            color: "#FFFFFF",
-            opacity: enviando ? 0.7 : 1,
-          }}
-        >
-          {enviando
-            ? "Guardando…"
-            : insulinas.length > 0
-              ? "Listo, terminé"
-              : "Continuar"}
-        </button>
-        {insulinas.length === 0 && (
-          <button onClick={onNinguna} disabled={enviando} style={linkBtn(MUTED)}>
-            No uso insulina
-          </button>
-        )}
-      </div>
+      )}
     </div>
   );
 }
@@ -525,16 +647,25 @@ const primaryBtn: React.CSSProperties = {
   minHeight: 44,
 };
 
-const secondaryBtn: React.CSSProperties = {
+const inputCentrado: React.CSSProperties = {
   width: "100%",
-  padding: "10px 0",
-  border: `1px solid ${AZUL}`,
+  padding: "12px 14px",
+  border: `1px solid ${BORDE}`,
   borderRadius: 10,
-  fontSize: 14,
+  fontSize: 16,
+  color: TEXTO,
+  backgroundColor: "#F8FAFC",
+  outline: "none",
+  boxSizing: "border-box",
+  textAlign: "center",
+};
+
+const etiquetaInput: React.CSSProperties = {
+  display: "block",
+  color: MUTED,
+  fontSize: 12,
   fontWeight: 600,
-  color: AZUL_FUERTE,
-  backgroundColor: "#FFFFFF",
-  minHeight: 44,
+  margin: "0 0 6px",
 };
 
 function opcionBtn(activo: boolean): React.CSSProperties {

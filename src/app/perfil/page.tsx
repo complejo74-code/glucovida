@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import {
   esClaseInsulina,
+  esSexo,
   esTipoDiabetes,
   type ClaseInsulina,
   type TipoDiabetes,
@@ -23,7 +24,7 @@ export default async function PerfilPage() {
   const [perfilRes, insulinasRes] = await Promise.all([
     supabase
       .from("usuario")
-      .select("tipo_diabetes, anio_nacimiento, menstrua")
+      .select("nombre, tipo_diabetes, anio_nacimiento, sexo, peso_kg, altura_cm")
       .eq("id", user.id)
       .maybeSingle(),
     supabase
@@ -50,9 +51,12 @@ export default async function PerfilPage() {
   return (
     <PerfilForm
       inicial={{
+        nombre: fila?.nombre ?? null,
         tipoDiabetes,
         anioNacimiento: fila?.anio_nacimiento ?? null,
-        menstrua: fila?.menstrua ?? null,
+        sexo: esSexo(fila?.sexo) ? fila.sexo : null,
+        pesoKg: fila?.peso_kg ?? null,
+        alturaCm: fila?.altura_cm ?? null,
       }}
       insulinas={insulinas}
     />

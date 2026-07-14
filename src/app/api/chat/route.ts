@@ -18,6 +18,7 @@ import {
 import { construirContextoPerfil } from "@/lib/perfil/contexto";
 import {
   esClaseInsulina,
+  esSexo,
   esTipoDiabetes,
   type InsulinaPerfil,
 } from "@/lib/perfil/tipos";
@@ -136,7 +137,7 @@ async function buildPerfilContext(
     const [perfilRes, insulinasRes] = await Promise.all([
       supabase
         .from("usuario")
-        .select("tipo_diabetes, anio_nacimiento, menstrua")
+        .select("nombre, tipo_diabetes, anio_nacimiento, sexo, peso_kg, altura_cm, menstrua")
         .eq("id", userId)
         .maybeSingle(),
       supabase
@@ -151,10 +152,14 @@ async function buildPerfilContext(
 
     const fila = perfilRes.data;
     const perfil = {
+      nombre: typeof fila?.nombre === "string" ? fila.nombre : null,
       tipoDiabetes: esTipoDiabetes(fila?.tipo_diabetes)
         ? fila.tipo_diabetes
         : null,
       anioNacimiento: fila?.anio_nacimiento ?? null,
+      sexo: esSexo(fila?.sexo) ? fila.sexo : null,
+      pesoKg: typeof fila?.peso_kg === "number" ? fila.peso_kg : null,
+      alturaCm: typeof fila?.altura_cm === "number" ? fila.altura_cm : null,
       menstrua: fila?.menstrua ?? null,
     };
 

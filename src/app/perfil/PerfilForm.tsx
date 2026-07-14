@@ -4,8 +4,11 @@ import { useState, useTransition } from "react";
 import Link from "next/link";
 import {
   OPCIONES_CLASE_INSULINA,
+  OPCIONES_SEXO,
   OPCIONES_TIPO_DIABETES,
+  marcasDeClase,
   type ClaseInsulina,
+  type Sexo,
   type TipoDiabetes,
 } from "@/lib/perfil/tipos";
 import { actualizarPerfil, agregarInsulina, eliminarInsulina } from "./actions";
@@ -29,43 +32,65 @@ export default function PerfilForm({
   insulinas,
 }: {
   inicial: {
+    nombre: string | null;
     tipoDiabetes: TipoDiabetes | null;
     anioNacimiento: number | null;
-    menstrua: boolean | null;
+    sexo: Sexo | null;
+    pesoKg: number | null;
+    alturaCm: number | null;
   };
   insulinas: InsulinaItem[];
 }) {
+  const [nombre, setNombre] = useState(inicial.nombre ?? "");
   const [tipoDiabetes, setTipoDiabetes] = useState<TipoDiabetes | null>(
     inicial.tipoDiabetes
   );
   const [anio, setAnio] = useState(
     inicial.anioNacimiento ? String(inicial.anioNacimiento) : ""
   );
-  const [menstrua, setMenstrua] = useState<boolean | null>(inicial.menstrua);
+  const [sexo, setSexo] = useState<Sexo | null>(inicial.sexo);
+  const [peso, setPeso] = useState(inicial.pesoKg ? String(inicial.pesoKg) : "");
+  const [altura, setAltura] = useState(
+    inicial.alturaCm ? String(inicial.alturaCm) : ""
+  );
   const [claseDraft, setClaseDraft] = useState<ClaseInsulina | "">("");
+  // Valor del <select> de marca: "" | marca conocida | "no_se" | "otra".
   const [marcaDraft, setMarcaDraft] = useState("");
+  const [marcaLibre, setMarcaLibre] = useState("");
   const [guardado, setGuardado] = useState(false);
   const [pending, startTransition] = useTransition();
 
   function guardar() {
     const anioNum = anio.trim() ? parseInt(anio, 10) : NaN;
+    const pesoNum = peso.trim() ? parseFloat(peso) : NaN;
+    const alturaNum = altura.trim() ? parseInt(altura, 10) : NaN;
     startTransition(async () => {
       await actualizarPerfil({
+        nombre: nombre.trim() ? nombre.trim() : null,
         tipoDiabetes,
         anioNacimiento: Number.isInteger(anioNum) ? anioNum : null,
-        menstrua,
+        sexo,
+        pesoKg: Number.isFinite(pesoNum) ? pesoNum : null,
+        alturaCm: Number.isInteger(alturaNum) ? alturaNum : null,
       });
       setGuardado(true);
       setTimeout(() => setGuardado(false), 2500);
     });
   }
 
+  function marcaFinal(): string {
+    if (marcaDraft === "otra") return marcaLibre.trim();
+    if (marcaDraft === "no_se" || marcaDraft === "") return "";
+    return marcaDraft;
+  }
+
   function onAgregar() {
     if (!claseDraft) return;
     startTransition(async () => {
-      await agregarInsulina(claseDraft, marcaDraft);
+      await agregarInsulina(claseDraft, marcaFinal());
       setClaseDraft("");
       setMarcaDraft("");
+      setMarcaLibre("");
     });
   }
 
@@ -74,6 +99,8 @@ export default function PerfilForm({
       await eliminarInsulina(id);
     });
   }
+
+  const marcasClase = claseDraft ? marcasDeClase(claseDraft) : [];
 
   return (
     <div
@@ -109,6 +136,18 @@ export default function PerfilForm({
           cuando quieras — las cosas cambian.
         </p>
 
+        {/* Nombre */}
+        <Seccion titulo="¿Cómo querés que te llame?">
+          <input
+            type="text"
+            value={nombre}
+            onChange={(e) => setNombre(e.target.value)}
+            placeholder="Tu nombre"
+            maxLength={40}
+            style={inputEstilo}
+          />
+        </Seccion>
+
         {/* Tipo de diabetes */}
         <Seccion titulo="Tipo de diabetes">
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
@@ -140,22 +179,46 @@ export default function PerfilForm({
           />
         </Seccion>
 
-        {/* Menstrúa */}
-        <Seccion titulo="¿Menstruás?">
+        {/* Sexo */}
+        <Seccion titulo="Sexo">
           <div style={{ display: "flex", gap: 10 }}>
-            {([
-              { v: true, t: "Sí" },
-              { v: false, t: "No" },
-              { v: null, t: "Prefiero no decir" },
-            ] as const).map((op) => (
+            {OPCIONES_SEXO.map((o) => (
               <button
-                key={String(op.v)}
-                onClick={() => setMenstrua(op.v)}
-                style={{ ...opcionBtn(menstrua === op.v), flex: 1, fontSize: 13 }}
+                key={o.valor}
+                onClick={() =>
+                  setSexo((prev) => (prev === o.valor ? null : o.valor))
+                }
+                style={{ ...opcionBtn(sexo === o.valor), flex: 1, fontSize: 13 }}
               >
-                {op.t}
+                {o.etiqueta}
               </button>
             ))}
+          </div>
+        </Seccion>
+
+        {/* Peso y altura */}
+        <Seccion titulo="Peso y altura">
+          <div style={{ display: "flex", gap: 10 }}>
+            <input
+              type="number"
+              inputMode="decimal"
+              value={peso}
+              onChange={(e) => setPeso(e.target.value)}
+              placeholder="Peso (kg)"
+              min={20}
+              max={400}
+              style={{ ...inputEstilo, flex: 1 }}
+            />
+            <input
+              type="number"
+              inputMode="numeric"
+              value={altura}
+              onChange={(e) => setAltura(e.target.value)}
+              placeholder="Altura (cm)"
+              min={50}
+              max={250}
+              style={{ ...inputEstilo, flex: 1 }}
+            />
           </div>
         </Seccion>
 
@@ -218,11 +281,15 @@ export default function PerfilForm({
               </div>
             )}
 
-            {/* Alta */}
+            {/* Alta: clase → marca (dropdown taxativo + Otra / No sé) */}
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               <select
                 value={claseDraft}
-                onChange={(e) => setClaseDraft(e.target.value as ClaseInsulina | "")}
+                onChange={(e) => {
+                  setClaseDraft(e.target.value as ClaseInsulina | "");
+                  setMarcaDraft("");
+                  setMarcaLibre("");
+                }}
                 style={{ ...inputEstilo, color: claseDraft ? TEXTO : MUTED }}
               >
                 <option value="">Agregar una insulina…</option>
@@ -232,13 +299,35 @@ export default function PerfilForm({
                   </option>
                 ))}
               </select>
-              <input
-                type="text"
-                value={marcaDraft}
-                onChange={(e) => setMarcaDraft(e.target.value)}
-                placeholder="Marca (opcional): Lantus, Humalog…"
-                style={inputEstilo}
-              />
+
+              {claseDraft && (
+                <select
+                  value={marcaDraft}
+                  onChange={(e) => setMarcaDraft(e.target.value)}
+                  style={{ ...inputEstilo, color: marcaDraft ? TEXTO : MUTED }}
+                >
+                  <option value="">Marca (opcional)…</option>
+                  {marcasClase.map((m) => (
+                    <option key={m.marca} value={m.marca}>
+                      {m.marca}
+                    </option>
+                  ))}
+                  <option value="no_se">No sé la marca</option>
+                  <option value="otra">Otra (escribir)</option>
+                </select>
+              )}
+
+              {claseDraft && marcaDraft === "otra" && (
+                <input
+                  type="text"
+                  value={marcaLibre}
+                  onChange={(e) => setMarcaLibre(e.target.value)}
+                  placeholder="¿Cuál?"
+                  maxLength={80}
+                  style={inputEstilo}
+                />
+              )}
+
               <button
                 onClick={onAgregar}
                 disabled={!claseDraft || pending}

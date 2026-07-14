@@ -5,20 +5,26 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import {
   esClaseInsulina,
+  esSexo,
   esTipoDiabetes,
   type ClaseInsulina,
+  type Sexo,
   type TipoDiabetes,
 } from "@/lib/perfil/tipos";
 
 /**
- * Edición del perfil (paso 9). Las cosas cambian (nueva insulina, etc.), así que
- * el perfil es editable después del onboarding. NO toca onboarding_completo.
- * Cliente de sesión → RLS (auth.uid()=id / usuario_id) valida cada escritura.
+ * Edición del perfil (paso 9 / 9.5). Las cosas cambian (nueva insulina, otro
+ * peso, etc.), así que el perfil es editable después del onboarding. NO toca
+ * onboarding_completo. Cliente de sesión → RLS (auth.uid()=id / usuario_id)
+ * valida cada escritura; nada usa service_role.
  */
 export async function actualizarPerfil(payload: {
+  nombre: string | null;
   tipoDiabetes: TipoDiabetes | null;
   anioNacimiento: number | null;
-  menstrua: boolean | null;
+  sexo: Sexo | null;
+  pesoKg: number | null;
+  alturaCm: number | null;
 }) {
   const supabase = await createClient();
   const {
@@ -26,6 +32,10 @@ export async function actualizarPerfil(payload: {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
+  const nombre =
+    typeof payload.nombre === "string" && payload.nombre.trim()
+      ? payload.nombre.trim().slice(0, 40)
+      : null;
   const tipoDiabetes = esTipoDiabetes(payload.tipoDiabetes)
     ? payload.tipoDiabetes
     : null;
@@ -37,12 +47,32 @@ export async function actualizarPerfil(payload: {
     anio <= 2026
       ? anio
       : null;
-  const menstrua =
-    typeof payload.menstrua === "boolean" ? payload.menstrua : null;
+  const sexo = esSexo(payload.sexo) ? payload.sexo : null;
+  const pesoKg =
+    typeof payload.pesoKg === "number" &&
+    Number.isFinite(payload.pesoKg) &&
+    payload.pesoKg >= 20 &&
+    payload.pesoKg <= 400
+      ? payload.pesoKg
+      : null;
+  const alturaCm =
+    typeof payload.alturaCm === "number" &&
+    Number.isInteger(payload.alturaCm) &&
+    payload.alturaCm >= 50 &&
+    payload.alturaCm <= 250
+      ? payload.alturaCm
+      : null;
 
   const { error } = await supabase
     .from("usuario")
-    .update({ tipo_diabetes: tipoDiabetes, anio_nacimiento: anioNacimiento, menstrua })
+    .update({
+      nombre,
+      tipo_diabetes: tipoDiabetes,
+      anio_nacimiento: anioNacimiento,
+      sexo,
+      peso_kg: pesoKg,
+      altura_cm: alturaCm,
+    })
     .eq("id", user.id);
 
   if (error) console.error("[/perfil] error actualizando perfil:", error);

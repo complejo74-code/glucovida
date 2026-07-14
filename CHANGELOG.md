@@ -3,6 +3,26 @@
 Todos los cambios notables de este proyecto se documentan acá.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [Paso 9.5] — 2026-07-14 — Perfil ampliado (nombre, sexo, peso/altura, insulinas taxativas)
+
+### Agregado
+- **Migración `004_perfil_ampliado.sql`** (idempotente, NO destructiva). Amplía `usuario`: `nombre text` (requerido en la UI, **nullable en DB**), `sexo text` `CHECK (NULL OR IN ('masculino','femenino','prefiero_no_decir'))`, `peso_kg numeric` `CHECK (NULL OR 20..400)`, `altura_cm int` `CHECK (NULL OR 50..250)`. El RLS existente de `usuario` (`auth.uid() = id`) ya cubre las columnas nuevas — **sin policy nueva**. Conserva la columna `menstrua`.
+- **Catálogo de insulinas real** (`src/lib/perfil/tipos.ts`): `MARCAS_INSULINA` del mercado argentino agrupadas por clase (rápidas: Humalog/NovoRapid/Apidra/Fiasp · basales-lentas: Lantus/Toujeo/Tresiba/Levemir/NPH · mixtas: NovoMix/Humalog Mix), con helpers `MARCAS_RAPIDAS`, `MARCAS_BASAL_LENTA`, `marcasDeClase`, `claseDeMarca`. Reemplaza el texto libre por dropdown, siempre con **"Otra"** (texto libre) y **"No sé"**. `calcularImc(peso, altura)` y tipo `Sexo` + `esSexo`.
+- **Peso/IMC como contexto interno con guardrail explícito**: el bloque de `construirContextoPerfil` prohíbe todo comentario evaluativo del peso ("nunca deberías bajar de peso", "contexto interno", sin dietas para adelgazar). Test que lo fija.
+
+### Cambiado
+- **Onboarding `/onboarding`** ahora 6 pasos: **nombre (requerido, no salteable)** → tipo → año → **sexo** (reemplaza a "¿menstruás?") → **peso/altura** → **insulinas en dos slots** (rápida y basal/lenta por separado, dropdown de marcas + "Otra"/"No sé"; las mixtas van por "Otra"). Cada campo explica **por qué** en una línea.
+- **`menstrua` ya no se pregunta** (ni en onboarding ni en `/perfil`); la columna se conserva para el futuro subagente hormonal y sigue sin surfacearse.
+- **`construirContextoPerfil`** inyecta ahora **nombre, edad, sexo, peso, altura e IMC** (además de tipo e insulinas), con el mismo gate: después de seguridad, **nunca en emergencia**. `sexo` solo se surfacea si es `masculino`/`femenino`. Nombre usado con naturalidad, sin abusar.
+- **`/perfil`** edita todos los campos nuevos; alta de insulina con clase → marca (dropdown por clase + "Otra"/"No sé").
+- `buildPerfilContext` (`/api/chat`) y las Server Actions de onboarding/perfil leen y sanean los campos nuevos (rango de peso/altura, `nombre` recortado a 40, RLS en cada escritura). `types.ts` (Supabase) ampliado a mano con las columnas nuevas.
+
+### Notas del code review
+- Verificado: (a) **RLS** — columnas nuevas cubiertas por la policy existente de `usuario`, cero `service_role`, todo con cliente de sesión; (b) **guardrails intactos** — doble gate de emergencia (route.ts + orquestador), sin dosis; (c) **peso nunca evaluativo** — guardrail fijo en el bloque + test.
+- Descartado en verificación: (1) `numeric` NO vuelve como string en este stack (el codebase ya hace aritmética directa sobre `valor_num`), así que el peso llega bien al contexto; (2) el gate de emergencia sigue firme tras sumar campos.
+- Corrección aplicada: "prefiero no decir" en el onboarding guarda `sexo='prefiero_no_decir'` (antes lo colapsaba a `null`), para que onboarding y `/perfil` registren la misma intención. `descripcionSexo` igual lo mantiene fuera del contexto.
+- Tests: `perfil-contexto.test.ts` ampliado (nombre, sexo solo masc/fem, peso+altura+IMC, guardrail de peso). Total **161 tests**.
+
 ## [Paso 9] — 2026-07-09 — Perfil y onboarding
 
 ### Agregado
