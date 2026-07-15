@@ -22,3 +22,18 @@ body {
   /* Nunito vía next/font (--font-nunito lo setea el RootLayout). */
   font-family: var(--font-nunito), system-ui, sans-serif;
 }
+
+/*
+ * Accesibilidad: quien pidió menos movimiento (prefers-reduced-motion) no ve
+ * animaciones. Las transiciones del onboarding (fade-slide, float) se anulan;
+ * el contenido igual aparece, solo que sin desplazamiento.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

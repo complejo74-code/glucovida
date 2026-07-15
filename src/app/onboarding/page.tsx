@@ -1,6 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { cn } from "@/lib/utils";
 import {
   MARCAS_BASAL_LENTA,
   MARCAS_RAPIDAS,
@@ -13,21 +23,18 @@ import {
 } from "@/lib/perfil/tipos";
 import { guardarOnboarding } from "./actions";
 
-const AZUL = "#22A7E6";
-const AZUL_FUERTE = "#1D90C7";
-const AZUL_AIRE = "#D6EEFB";
-const TEXTO = "#0F172A";
-const MUTED = "#5B6B7C";
-const BORDE = "#E6EEF5";
-
 /**
  * Estado de un slot de insulina (rápida o basal/lenta). `seleccion` guarda el
- * valor del <select>: "" (no usa / salteó), una marca conocida, "otra" (texto
- * libre) o "no_se" (usa pero no sabe la marca).
+ * valor lógico: "" (no usa / salteó), una marca conocida, "otra" (texto libre)
+ * o "no_se" (usa pero no sabe la marca). El shadcn Select usa "no_uso" como
+ * item para el "" (Radix no admite value="" en un item); se mapea en el borde.
  */
 type SlotInsulina = { seleccion: string; marcaLibre: string };
 
 const SLOT_VACIO: SlotInsulina = { seleccion: "", marcaLibre: "" };
+
+/** Sentinel del Select para "No uso" (Radix no permite un item con value=""). */
+const NO_USO = "no_uso";
 
 const TOTAL_PASOS = 6;
 
@@ -60,9 +67,24 @@ export default function OnboardingPage() {
   const [slotRapida, setSlotRapida] = useState<SlotInsulina>(SLOT_VACIO);
   const [slotBasal, setSlotBasal] = useState<SlotInsulina>(SLOT_VACIO);
 
+  // Foco al cambiar de paso: sin esto, remontar el paso (key={paso}) tira el
+  // foco al <body> — el teclado reinicia desde arriba y los lectores de
+  // pantalla no anuncian el paso nuevo (a11y: 2.4.3 / 4.1.3). Movemos el foco
+  // al bloque del paso (o al título del cierre). El paso 0 conserva el
+  // autoFocus de su input, así que no lo tocamos.
+  const stepRef = useRef<HTMLDivElement>(null);
+  const cierreRef = useRef<HTMLHeadingElement>(null);
+
+  useEffect(() => {
+    if (paso === TOTAL_PASOS) cierreRef.current?.focus();
+    else if (paso > 0) stepRef.current?.focus();
+  }, [paso]);
+
   function avanzar() {
+    // Al terminar las 6 preguntas vamos a la pantalla de cierre (paso 6), no
+    // directo al guardado: guardarOnboarding (que redirige) se llama desde ahí.
     if (paso < TOTAL_PASOS - 1) setPaso((p) => p + 1);
-    else finalizar();
+    else setPaso(TOTAL_PASOS);
   }
 
   function retroceder() {
@@ -101,173 +123,292 @@ export default function OnboardingPage() {
     }
   }
 
-  return (
-    <div
-      style={{
-        minHeight: "100dvh",
-        backgroundColor: "#FFFFFF",
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        padding: "24px 16px 32px",
-      }}
-    >
-      <div style={{ width: "100%", maxWidth: 440 }}>
-        {/* Encabezado cálido persistente */}
-        <div style={{ textAlign: "center", marginBottom: 20 }}>
+  // ── Pantalla de cierre (después de las 6 preguntas) ───────────────────────
+  if (paso === TOTAL_PASOS) {
+    return (
+      <div className="flex min-h-dvh flex-col items-center justify-center bg-gradient-section px-4 py-10">
+        <div
+          key="cierre"
+          className="w-full max-w-md animate-fade-slide-in text-center"
+        >
           <div
-            style={{
-              width: 56,
-              height: 56,
-              borderRadius: "50%",
-              backgroundColor: AZUL_AIRE,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: 28,
-              margin: "0 auto 10px",
-            }}
+            aria-hidden
+            className="mx-auto mb-5 flex size-20 animate-float items-center justify-center rounded-circle bg-primary-air text-4xl"
           >
             🩵
           </div>
-          <h1 style={{ color: TEXTO, fontSize: 20, fontWeight: 700, margin: 0 }}>
+          <h1
+            ref={cierreRef}
+            tabIndex={-1}
+            className="text-2xl font-black leading-title text-text outline-none"
+          >
+            {nombre.trim() ? `Listo, ${nombre.trim()}` : "Listo"}
+          </h1>
+          <p className="mx-auto mt-3 max-w-sm text-base leading-body text-muted">
+            Gluco ya te está esperando. Cuando quieras, empezamos a charlar —
+            a tu ritmo, sin apuro.
+          </p>
+          <div className="mx-auto mt-8 max-w-xs">
+            <Button
+              type="button"
+              size="lg"
+              className="w-full"
+              onClick={finalizar}
+              disabled={enviando}
+            >
+              {enviando && (
+                <span
+                  aria-hidden
+                  className="inline-block size-4 animate-spin rounded-circle border-2 border-text/30 border-t-text"
+                />
+              )}
+              {enviando ? "Entrando…" : "Entrar a Gluco"}
+            </Button>
+          </div>
+          <div className="mt-3">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={retroceder}
+              disabled={enviando}
+            >
+              ← Volver
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex min-h-dvh flex-col items-center bg-gradient-section px-4 py-10">
+      <div className="w-full max-w-md">
+        {/* Encabezado cálido persistente */}
+        <div className="mb-6 text-center">
+          <div
+            aria-hidden
+            className="mx-auto mb-3 flex size-14 animate-float items-center justify-center rounded-circle bg-primary-air text-3xl"
+          >
+            🩵
+          </div>
+          <h1 className="text-2xl font-black leading-title text-text">
             Qué bueno tenerte acá
           </h1>
-          <p style={{ color: MUTED, fontSize: 14, margin: "6px 0 0", lineHeight: 1.5 }}>
+          <p className="mx-auto mt-2 max-w-sm text-sm leading-body text-muted">
             Antes de arrancar, ¿me contás un poco de vos? Son unas preguntas
             cortas y, menos tu nombre, podés saltar las que quieras.
           </p>
         </div>
 
-        {/* Progreso: puntitos */}
+        {/* Progreso: segmentos suaves — "vamos avanzando juntos" (no un %). */}
         <div
-          style={{
-            display: "flex",
-            gap: 6,
-            justifyContent: "center",
-            marginBottom: 24,
-          }}
+          role="progressbar"
+          aria-valuemin={1}
+          aria-valuemax={TOTAL_PASOS}
+          aria-valuenow={paso + 1}
+          aria-label={`Paso ${paso + 1} de ${TOTAL_PASOS}`}
+          className="mb-6 flex items-center gap-1.5"
         >
           {Array.from({ length: TOTAL_PASOS }).map((_, i) => (
-            <div
+            <span
               key={i}
-              style={{
-                width: i === paso ? 24 : 8,
-                height: 8,
-                borderRadius: 4,
-                backgroundColor: i <= paso ? AZUL : BORDE,
-                transition: "all 0.2s",
-              }}
+              className={cn(
+                "h-1.5 flex-1 rounded-pill transition-all duration-300",
+                i <= paso ? "bg-gradient-strong" : "bg-primary-air"
+              )}
             />
           ))}
         </div>
 
         {/* Tarjeta del paso */}
-        <div
-          style={{
-            backgroundColor: "#FFFFFF",
-            border: `1px solid ${BORDE}`,
-            borderRadius: 16,
-            padding: 24,
-            boxShadow: "0 4px 16px rgba(34,167,230,0.08)",
-          }}
-        >
-          {paso === 0 && (
-            <PasoNombre valor={nombre} onChange={setNombre} onContinuar={avanzar} />
-          )}
-
-          {paso === 1 && (
-            <PasoTipo
-              seleccion={tipoDiabetes}
-              onSelect={(v) => {
-                setTipoDiabetes(v);
-                avanzar();
-              }}
-            />
-          )}
-
-          {paso === 2 && (
-            <PasoAnio valor={anio} onChange={setAnio} onContinuar={avanzar} />
-          )}
-
-          {paso === 3 && (
-            <PasoSexo
-              onElegir={(v) => {
-                setSexo(v);
-                avanzar();
-              }}
-            />
-          )}
-
-          {paso === 4 && (
-            <PasoCuerpo
-              peso={peso}
-              altura={altura}
-              onPeso={setPeso}
-              onAltura={setAltura}
-              onContinuar={avanzar}
-            />
-          )}
-
-          {paso === 5 && (
-            <PasoInsulinas
-              slotRapida={slotRapida}
-              slotBasal={slotBasal}
-              onSlotRapida={setSlotRapida}
-              onSlotBasal={setSlotBasal}
-              onFinalizar={finalizar}
-              enviando={enviando}
-            />
-          )}
-
-          {/* Acciones comunes: atrás (desde el 2º paso) + saltar. El nombre (0)
-              no se saltea; en sexo (3) "prefiero no decir" YA es el saltar. */}
+        <div className="rounded-card border border-border bg-white p-7 shadow-card-hover">
+          {/* key={paso} → cada paso remonta y re-anima (fade + slight slide).
+              ref/tabIndex: recibe el foco al cambiar de paso (ver useEffect). */}
           <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              marginTop: 20,
-            }}
+            key={paso}
+            ref={stepRef}
+            tabIndex={-1}
+            className="animate-fade-slide-in outline-none"
           >
-            {paso > 0 ? (
-              <button
-                onClick={retroceder}
-                style={linkBtn(MUTED)}
-                disabled={enviando}
-              >
-                ← Atrás
-              </button>
-            ) : (
-              <span />
+            {paso === 0 && (
+              <PasoNombre
+                valor={nombre}
+                onChange={setNombre}
+                onContinuar={avanzar}
+              />
             )}
 
-            {paso !== 0 && paso !== 3 && (
-              <button
-                onClick={avanzar}
-                style={linkBtn(AZUL_FUERTE)}
-                disabled={enviando}
-              >
-                Prefiero saltar esto →
-              </button>
+            {paso === 1 && (
+              <PasoTipo
+                seleccion={tipoDiabetes}
+                onSelect={(v) => {
+                  setTipoDiabetes(v);
+                  avanzar();
+                }}
+                onSaltar={avanzar}
+              />
+            )}
+
+            {paso === 2 && (
+              <PasoAnio
+                valor={anio}
+                onChange={setAnio}
+                onContinuar={avanzar}
+                onSaltar={avanzar}
+              />
+            )}
+
+            {paso === 3 && (
+              <PasoSexo
+                seleccion={sexo}
+                onElegir={(v) => {
+                  setSexo(v);
+                  avanzar();
+                }}
+              />
+            )}
+
+            {paso === 4 && (
+              <PasoCuerpo
+                peso={peso}
+                altura={altura}
+                onPeso={setPeso}
+                onAltura={setAltura}
+                onContinuar={avanzar}
+                onSaltar={avanzar}
+              />
+            )}
+
+            {paso === 5 && (
+              <PasoInsulinas
+                slotRapida={slotRapida}
+                slotBasal={slotBasal}
+                onSlotRapida={setSlotRapida}
+                onSlotBasal={setSlotBasal}
+                onContinuar={avanzar}
+                onSaltar={avanzar}
+              />
             )}
           </div>
         </div>
 
-        <p
-          style={{
-            color: MUTED,
-            fontSize: 12,
-            marginTop: 18,
-            textAlign: "center",
-            lineHeight: 1.5,
-          }}
-        >
+        {/* Atrás: navegación, disponible desde el 2º paso. */}
+        {paso > 0 && (
+          <div className="mt-3 text-center">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={retroceder}
+            >
+              ← Atrás
+            </Button>
+          </div>
+        )}
+
+        <p className="mx-auto mt-4 max-w-sm text-center text-xs leading-body text-muted">
           Casi nada de esto es obligatorio. Gluco te acompaña igual — con lo que
           quieras contar, te entiende un poco mejor.
         </p>
       </div>
     </div>
+  );
+}
+
+// ── Piezas compartidas ──────────────────────────────────────────────────────
+
+/**
+ * Título + "por qué preguntamos esto". Jerarquía clara: el título manda, el
+ * porqué queda debajo, en muted y más chico, pegado al campo (R4).
+ */
+function Pregunta({
+  titulo,
+  porque,
+  porqueId,
+}: {
+  titulo: string;
+  porque: string;
+  // Si se pasa, el campo del paso lo referencia con aria-describedby para que
+  // el lector de pantalla lea el "por qué" junto al campo (a11y: 1.3.1).
+  porqueId?: string;
+}) {
+  return (
+    <div className="mb-5">
+      <h2 className="text-xl font-extrabold leading-title text-text">{titulo}</h2>
+      <p id={porqueId} className="mt-1.5 text-sm leading-body text-muted">
+        {porque}
+      </p>
+    </div>
+  );
+}
+
+/**
+ * Par de acciones de un paso salteable: "Continuar" y "Prefiero seguir" con la
+ * MISMA prioridad visual (R5) — dos botones outline, mismo tamaño y contraste.
+ * Ninguno es "la opción correcta"; se diferencian solo por su etiqueta.
+ */
+function AccionesPaso({
+  onContinuar,
+  onSaltar,
+  continuarLabel = "Continuar",
+  continuarDeshabilitado = false,
+}: {
+  onContinuar: () => void;
+  onSaltar: () => void;
+  continuarLabel?: string;
+  continuarDeshabilitado?: boolean;
+}) {
+  return (
+    <div className="mt-6 flex gap-3">
+      <Button
+        type="button"
+        variant="outline"
+        size="lg"
+        className="flex-1"
+        onClick={onContinuar}
+        disabled={continuarDeshabilitado}
+      >
+        {continuarLabel}
+      </Button>
+      <Button
+        type="button"
+        variant="outline"
+        size="lg"
+        className="flex-1"
+        onClick={onSaltar}
+      >
+        Prefiero seguir
+      </Button>
+    </div>
+  );
+}
+
+/** Botón-card de una opción (tipo de diabetes / sexo). Táctil, con presencia. */
+function OpcionCard({
+  activo,
+  onClick,
+  children,
+}: {
+  activo: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={activo}
+      className={cn(
+        "flex min-h-14 items-center justify-center rounded-input border px-3 py-3 text-center text-base font-semibold text-text transition-all",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-strong focus-visible:ring-offset-2",
+        activo
+          ? "border-primary-strong bg-primary-air shadow-btn-hover"
+          : "border-border-strong bg-white hover:border-primary-soft hover:bg-primary-air/50"
+      )}
+    >
+      {children}
+    </button>
   );
 }
 
@@ -287,8 +428,9 @@ function PasoNombre({
       <Pregunta
         titulo="¿Cómo querés que te llame?"
         porque="Es lo único que te pedimos sí o sí, para que Gluco te hable por tu nombre."
+        porqueId="porque-nombre"
       />
-      <input
+      <Input
         type="text"
         value={valor}
         onChange={(e) => onChange(e.target.value)}
@@ -298,31 +440,18 @@ function PasoNombre({
         placeholder="Tu nombre o como quieras que te diga"
         maxLength={40}
         autoFocus
-        style={{
-          width: "100%",
-          padding: "12px 14px",
-          border: `1px solid ${BORDE}`,
-          borderRadius: 10,
-          fontSize: 16,
-          color: TEXTO,
-          backgroundColor: "#F8FAFC",
-          outline: "none",
-          boxSizing: "border-box",
-        }}
+        aria-label="Tu nombre"
+        aria-describedby="porque-nombre"
       />
-      <button
+      <Button
+        type="button"
+        size="lg"
+        className="mt-5 w-full"
         onClick={onContinuar}
         disabled={!valido}
-        style={{
-          ...primaryBtn,
-          marginTop: 16,
-          backgroundColor: valido ? AZUL : BORDE,
-          color: valido ? "#FFFFFF" : MUTED,
-          cursor: valido ? "pointer" : "not-allowed",
-        }}
       >
         Continuar
-      </button>
+      </Button>
     </div>
   );
 }
@@ -331,9 +460,11 @@ function PasoNombre({
 function PasoTipo({
   seleccion,
   onSelect,
+  onSaltar,
 }: {
   seleccion: TipoDiabetes | null;
   onSelect: (v: TipoDiabetes) => void;
+  onSaltar: () => void;
 }) {
   return (
     <div>
@@ -341,17 +472,28 @@ function PasoTipo({
         titulo="¿Qué tipo de diabetes tenés?"
         porque="Nos ayuda a que Gluco entienda mejor tu día a día. Si no estás segura/o, elegí “Otro”."
       />
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+      <div className="grid grid-cols-2 gap-2.5">
         {OPCIONES_TIPO_DIABETES.map((o) => (
-          <button
+          <OpcionCard
             key={o.valor}
+            activo={seleccion === o.valor}
             onClick={() => onSelect(o.valor)}
-            style={opcionBtn(seleccion === o.valor)}
           >
             {o.etiqueta}
-          </button>
+          </OpcionCard>
         ))}
       </div>
+      {/* Sin par Continuar/Saltar: elegir una card ya avanza. El saltar queda
+          como un botón outline de igual peso, otra puerta igual de válida. */}
+      <Button
+        type="button"
+        variant="outline"
+        size="lg"
+        className="mt-4 w-full"
+        onClick={onSaltar}
+      >
+        Prefiero seguir
+      </Button>
     </div>
   );
 }
@@ -361,75 +503,75 @@ function PasoAnio({
   valor,
   onChange,
   onContinuar,
+  onSaltar,
 }: {
   valor: string;
   onChange: (v: string) => void;
   onContinuar: () => void;
+  onSaltar: () => void;
 }) {
   const anioNum = valor.trim() ? parseInt(valor, 10) : NaN;
-  const valido =
-    Number.isInteger(anioNum) && anioNum >= 1900 && anioNum <= 2026;
+  const valido = Number.isInteger(anioNum) && anioNum >= 1900 && anioNum <= 2026;
   return (
     <div>
       <Pregunta
         titulo="¿En qué año naciste?"
         porque="Solo para tener una idea de tu edad. No guardamos tu fecha exacta."
+        porqueId="porque-anio"
       />
-      <input
+      <Input
         type="number"
         inputMode="numeric"
         value={valor}
         onChange={(e) => onChange(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && valido) onContinuar();
+        }}
         placeholder="Ej: 1990"
         min={1900}
         max={2026}
-        style={{
-          width: "100%",
-          padding: "12px 14px",
-          border: `1px solid ${BORDE}`,
-          borderRadius: 10,
-          fontSize: 16,
-          color: TEXTO,
-          backgroundColor: "#F8FAFC",
-          outline: "none",
-          boxSizing: "border-box",
-          textAlign: "center",
-        }}
+        className="text-center"
+        aria-label="Año de nacimiento"
+        aria-describedby="porque-anio ayuda-anio"
       />
-      <button
-        onClick={onContinuar}
-        disabled={!valido}
-        style={{
-          ...primaryBtn,
-          marginTop: 16,
-          backgroundColor: valido ? AZUL : BORDE,
-          color: valido ? "#FFFFFF" : MUTED,
-          cursor: valido ? "pointer" : "not-allowed",
-        }}
-      >
-        Continuar
-      </button>
+      {/* Pista del rango en vez de solo deshabilitar "Continuar" (a11y 3.3.1). */}
+      <p id="ayuda-anio" className="mt-2 text-center text-xs text-muted">
+        Un año entre 1900 y 2026.
+      </p>
+      <AccionesPaso
+        onContinuar={onContinuar}
+        onSaltar={onSaltar}
+        continuarDeshabilitado={!valido}
+      />
     </div>
   );
 }
 
 // ── Paso 3: sexo ────────────────────────────────────────────────────────────
-function PasoSexo({ onElegir }: { onElegir: (v: Sexo) => void }) {
+function PasoSexo({
+  seleccion,
+  onElegir,
+}: {
+  seleccion: Sexo | null;
+  onElegir: (v: Sexo) => void;
+}) {
   return (
     <div>
       <Pregunta
         titulo="¿Cuál es tu sexo?"
-        porque="Algunas cosas del cuerpo funcionan distinto. Si preferís no decir, está perfecto."
+        porque="Algunas cosas del cuerpo funcionan distinto. Si preferís no decir, está perfecto — es una opción más."
       />
-      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      {/* "Prefiero no decir" es una card más: el saltar de este paso, con el
+          mismo peso que el resto (R5). */}
+      <div className="flex flex-col gap-2.5">
         {OPCIONES_SEXO.map((o) => (
-          <button
+          <OpcionCard
             key={o.valor}
+            activo={seleccion === o.valor}
             onClick={() => onElegir(o.valor)}
-            style={opcionBtn(false)}
           >
             {o.etiqueta}
-          </button>
+          </OpcionCard>
         ))}
       </div>
     </div>
@@ -443,12 +585,14 @@ function PasoCuerpo({
   onPeso,
   onAltura,
   onContinuar,
+  onSaltar,
 }: {
   peso: string;
   altura: string;
   onPeso: (v: string) => void;
   onAltura: (v: string) => void;
   onContinuar: () => void;
+  onSaltar: () => void;
 }) {
   return (
     <div>
@@ -456,10 +600,16 @@ function PasoCuerpo({
         titulo="¿Tu peso y altura?"
         porque="Nos ayuda a entender mejor las porciones y tu contexto. Nunca para juzgar tu cuerpo."
       />
-      <div style={{ display: "flex", gap: 10 }}>
-        <div style={{ flex: 1 }}>
-          <label style={etiquetaInput}>Peso (kg)</label>
-          <input
+      <div className="flex gap-3">
+        <div className="flex-1">
+          <label
+            htmlFor="peso"
+            className="mb-1.5 block text-xs font-semibold text-muted"
+          >
+            Peso (kg)
+          </label>
+          <Input
+            id="peso"
             type="number"
             inputMode="decimal"
             value={peso}
@@ -467,12 +617,18 @@ function PasoCuerpo({
             placeholder="Ej: 70"
             min={20}
             max={400}
-            style={inputCentrado}
+            className="text-center"
           />
         </div>
-        <div style={{ flex: 1 }}>
-          <label style={etiquetaInput}>Altura (cm)</label>
-          <input
+        <div className="flex-1">
+          <label
+            htmlFor="altura"
+            className="mb-1.5 block text-xs font-semibold text-muted"
+          >
+            Altura (cm)
+          </label>
+          <Input
+            id="altura"
             type="number"
             inputMode="numeric"
             value={altura}
@@ -480,16 +636,11 @@ function PasoCuerpo({
             placeholder="Ej: 170"
             min={50}
             max={250}
-            style={inputCentrado}
+            className="text-center"
           />
         </div>
       </div>
-      <button
-        onClick={onContinuar}
-        style={{ ...primaryBtn, marginTop: 16, backgroundColor: AZUL, color: "#FFFFFF" }}
-      >
-        Continuar
-      </button>
+      <AccionesPaso onContinuar={onContinuar} onSaltar={onSaltar} />
     </div>
   );
 }
@@ -500,15 +651,15 @@ function PasoInsulinas({
   slotBasal,
   onSlotRapida,
   onSlotBasal,
-  onFinalizar,
-  enviando,
+  onContinuar,
+  onSaltar,
 }: {
   slotRapida: SlotInsulina;
   slotBasal: SlotInsulina;
   onSlotRapida: (s: SlotInsulina) => void;
   onSlotBasal: (s: SlotInsulina) => void;
-  onFinalizar: () => void;
-  enviando: boolean;
+  onContinuar: () => void;
+  onSaltar: () => void;
 }) {
   return (
     <div>
@@ -517,181 +668,95 @@ function PasoInsulinas({
         porque="Así Gluco sabe de qué insulina hablás cuando la mencionás. Siempre como info, nunca te va a indicar una dosis."
       />
 
-      <SlotSelector
-        titulo="Tu insulina rápida"
-        ayuda="La de las comidas"
-        marcas={MARCAS_RAPIDAS}
-        slot={slotRapida}
-        onChange={onSlotRapida}
-      />
-      <div style={{ height: 16 }} />
-      <SlotSelector
-        titulo="Tu insulina basal / lenta"
-        ayuda="La de fondo, de acción prolongada"
-        marcas={MARCAS_BASAL_LENTA}
-        slot={slotBasal}
-        onChange={onSlotBasal}
-      />
+      <div className="flex flex-col gap-3">
+        <SlotSelector
+          titulo="Tu insulina rápida"
+          ayuda="La de las comidas"
+          idBase="rapida"
+          marcas={MARCAS_RAPIDAS}
+          slot={slotRapida}
+          onChange={onSlotRapida}
+        />
+        <SlotSelector
+          titulo="Tu insulina basal / lenta"
+          ayuda="La de fondo, de acción prolongada"
+          idBase="basal"
+          marcas={MARCAS_BASAL_LENTA}
+          slot={slotBasal}
+          onChange={onSlotBasal}
+        />
+      </div>
 
-      <p style={{ color: MUTED, fontSize: 12, margin: "16px 0 0", lineHeight: 1.5 }}>
+      <p className="mt-4 text-xs leading-body text-muted">
         ¿Usás una premezcla (tipo NovoMix o Humalog Mix) u otra? Elegí “Otra” y
-        escribila. Si no usás insulina, dejá los dos en blanco.
+        escribila. Si no usás insulina, dejá los dos en “No uso”.
       </p>
 
-      <button
-        onClick={onFinalizar}
-        disabled={enviando}
-        style={{
-          ...primaryBtn,
-          marginTop: 20,
-          backgroundColor: AZUL,
-          color: "#FFFFFF",
-          opacity: enviando ? 0.7 : 1,
-        }}
-      >
-        {enviando ? "Guardando…" : "Listo, terminé"}
-      </button>
+      <AccionesPaso
+        onContinuar={onContinuar}
+        onSaltar={onSaltar}
+        continuarLabel="Listo, terminé"
+      />
     </div>
   );
 }
 
+/**
+ * Un slot de insulina: sub-tarjeta propia (borde + fondo aire) para que los dos
+ * slots se lean como bloques distintos (R7), con el dropdown tokenizado (shadcn
+ * Select). Mapea el "" lógico ↔ item "no_uso" para no tocar slotAInsulina.
+ */
 function SlotSelector({
   titulo,
   ayuda,
+  idBase,
   marcas,
   slot,
   onChange,
 }: {
   titulo: string;
   ayuda: string;
+  idBase: string;
   marcas: ReadonlyArray<{ marca: string; clase: ClaseInsulina }>;
   slot: SlotInsulina;
   onChange: (s: SlotInsulina) => void;
 }) {
+  const valueSelect = slot.seleccion === "" ? NO_USO : slot.seleccion;
   return (
-    <div>
-      <p style={{ color: TEXTO, fontSize: 14, fontWeight: 700, margin: "0 0 2px" }}>
-        {titulo}
-      </p>
-      <p style={{ color: MUTED, fontSize: 12, margin: "0 0 8px" }}>{ayuda}</p>
-      <select
-        value={slot.seleccion}
-        onChange={(e) => onChange({ seleccion: e.target.value, marcaLibre: "" })}
-        style={{
-          width: "100%",
-          padding: "12px 14px",
-          border: `1px solid ${BORDE}`,
-          borderRadius: 10,
-          fontSize: 15,
-          color: slot.seleccion ? TEXTO : MUTED,
-          backgroundColor: "#F8FAFC",
-          outline: "none",
-          boxSizing: "border-box",
-        }}
+    <div className="rounded-input border border-border bg-primary-air/40 p-4">
+      <p className="text-sm font-bold text-text">{titulo}</p>
+      <p className="mb-2.5 text-xs text-muted">{ayuda}</p>
+      <Select
+        value={valueSelect}
+        onValueChange={(v) =>
+          onChange({ seleccion: v === NO_USO ? "" : v, marcaLibre: "" })
+        }
       >
-        <option value="">No uso / no aplica</option>
-        {marcas.map((m) => (
-          <option key={m.marca} value={m.marca}>
-            {m.marca}
-          </option>
-        ))}
-        <option value="no_se">Uso pero no sé la marca</option>
-        <option value="otra">Otra (escribir)</option>
-      </select>
+        <SelectTrigger className="bg-white" aria-label={titulo}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={NO_USO}>No uso / no aplica</SelectItem>
+          {marcas.map((m) => (
+            <SelectItem key={m.marca} value={m.marca}>
+              {m.marca}
+            </SelectItem>
+          ))}
+          <SelectItem value="no_se">Uso pero no sé la marca</SelectItem>
+          <SelectItem value="otra">Otra (escribir)</SelectItem>
+        </SelectContent>
+      </Select>
       {slot.seleccion === "otra" && (
-        <input
+        <Input
           type="text"
           value={slot.marcaLibre}
           onChange={(e) => onChange({ ...slot, marcaLibre: e.target.value })}
           placeholder="¿Cuál?"
           maxLength={80}
-          style={{
-            width: "100%",
-            marginTop: 8,
-            padding: "12px 14px",
-            border: `1px solid ${BORDE}`,
-            borderRadius: 10,
-            fontSize: 15,
-            color: TEXTO,
-            backgroundColor: "#F8FAFC",
-            outline: "none",
-            boxSizing: "border-box",
-          }}
+          className="mt-2.5 bg-white"
+          aria-label={`${titulo}: escribí la marca`}
         />
       )}
     </div>
   );
-}
-
-// ── Piezas compartidas ──────────────────────────────────────────────────────
-function Pregunta({ titulo, porque }: { titulo: string; porque: string }) {
-  return (
-    <div style={{ marginBottom: 18 }}>
-      <h2 style={{ color: TEXTO, fontSize: 18, fontWeight: 700, margin: 0 }}>
-        {titulo}
-      </h2>
-      <p style={{ color: MUTED, fontSize: 13, margin: "6px 0 0", lineHeight: 1.5 }}>
-        {porque}
-      </p>
-    </div>
-  );
-}
-
-const primaryBtn: React.CSSProperties = {
-  width: "100%",
-  padding: "12px 0",
-  border: "none",
-  borderRadius: 10,
-  fontSize: 16,
-  fontWeight: 700,
-  minHeight: 44,
-};
-
-const inputCentrado: React.CSSProperties = {
-  width: "100%",
-  padding: "12px 14px",
-  border: `1px solid ${BORDE}`,
-  borderRadius: 10,
-  fontSize: 16,
-  color: TEXTO,
-  backgroundColor: "#F8FAFC",
-  outline: "none",
-  boxSizing: "border-box",
-  textAlign: "center",
-};
-
-const etiquetaInput: React.CSSProperties = {
-  display: "block",
-  color: MUTED,
-  fontSize: 12,
-  fontWeight: 600,
-  margin: "0 0 6px",
-};
-
-function opcionBtn(activo: boolean): React.CSSProperties {
-  return {
-    padding: "14px 12px",
-    borderRadius: 12,
-    border: `1.5px solid ${activo ? AZUL : BORDE}`,
-    backgroundColor: activo ? AZUL_AIRE : "#F8FAFC",
-    color: TEXTO,
-    fontSize: 15,
-    fontWeight: 600,
-    cursor: "pointer",
-    minHeight: 44,
-    textAlign: "center",
-    transition: "all 0.15s",
-  };
-}
-
-function linkBtn(color: string): React.CSSProperties {
-  return {
-    background: "transparent",
-    border: "none",
-    color,
-    fontSize: 14,
-    fontWeight: 600,
-    cursor: "pointer",
-    padding: "4px 0",
-  };
 }

@@ -25,7 +25,7 @@ function SubmitButton({ mode }: { mode: Mode }) {
       {pending && (
         <span
           aria-hidden
-          className="inline-block size-4 animate-spin rounded-circle border-2 border-white/40 border-t-white"
+          className="inline-block size-4 animate-spin rounded-circle border-2 border-text/30 border-t-text"
         />
       )}
       {pending ? pendingLabel : label}
@@ -64,7 +64,10 @@ function LoginForm() {
     <div className="flex min-h-dvh flex-col items-center justify-center bg-gradient-section px-4 py-12">
       {/* Logo / Brand */}
       <div className="mb-8 text-center">
-        <div className="mx-auto mb-3 flex size-16 items-center justify-center rounded-circle bg-primary-air text-3xl">
+        <div
+          aria-hidden
+          className="mx-auto mb-3 flex size-16 items-center justify-center rounded-circle bg-primary-air text-3xl"
+        >
           🩵
         </div>
         <h1 className="text-3xl font-black leading-title text-text">

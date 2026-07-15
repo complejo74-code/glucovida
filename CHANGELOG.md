@@ -3,6 +3,32 @@
 Todos los cambios notables de este proyecto se documentan acá.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [Paso 10B-2] — 2026-07-15 — Rediseño del onboarding (6 pasos) + accesibilidad AA
+
+> Paso **puramente visual + accesibilidad**: rediseña `/onboarding` con el
+> sistema del 10A/10B-1 y endurece el contraste/foco del sistema de diseño a
+> WCAG 2.1 AA. **Cero cambios de lógica**: Server Actions (`actions.ts`), gate
+> de middleware y persistencia (`usuario`, `insulina_usuario`) sin tocar. El
+> guardado, el salteo y el redirect a `/chat` funcionan exactamente igual.
+
+### Cambiado
+- **`src/app/onboarding/page.tsx`** reescrita con Tailwind + shadcn — **eliminados todos los inline styles**. Fondo `bg-gradient-section`, card 28px con sombra celeste, header cálido y 🩵 flotante como `/login`. Progreso de 6 pasos en segmentos suaves (no un "%"). Transición fade+slide entre pasos (`animate-fade-slide-in`, remonta con `key={paso}`). Cada paso mantiene su "por qué preguntamos esto" con jerarquía clara. **"Prefiero seguir" con la misma prioridad visual que "Continuar"** (dos botones outline idénticos). Tipo de diabetes con botones-card (no `<select>`). Insulinas en dos slots diferenciados con shadcn `Select` tokenizado. **Pantalla de cierre cálida** ("Listo, {nombre} · Gluco ya te está esperando") antes del chat: la misma `guardarOnboarding` intacta se llama desde su botón.
+- **Accesibilidad (sistema de diseño, afecta también `/login`):**
+  - **`primary.foreground`** pasa de `#FFFFFF` a `#0F172A`: el texto de los CTA va oscuro sobre el celeste de marca — 4.99–6.58:1 (antes blanco daba 2.71–3.58:1, fallaba AA). El gradiente **conserva el celeste** `#22A7E6→#1D90C7`.
+  - **Bordes de controles** (`input`, `select`, botón `outline`, cards de opción) usan el nuevo token `border.strong` `#7A94A6` (3.18:1) en vez del decorativo `#E6EEF5` (1.17:1). Los bordes decorativos (cards, panel del dropdown, separadores) quedan claros.
+  - **Anillo de foco** `ring-primary` → `ring-primary-strong` (`#1D90C7`, 3.58:1); la card de opción gana anillo de foco visible.
+  - **Foco al cambiar de paso**: `useEffect` sobre `paso` mueve el foco al encabezado del paso / título del cierre (antes el foco caía al `<body>` y los lectores de pantalla no anunciaban el cambio).
+  - Item resaltado del dropdown: `focus:text-primary-strong` → `focus:text-text` (2.98:1 → 14.9:1). 🩵 decorativos con `aria-hidden`; nombre/año con `aria-describedby` al "por qué"; año con pista de rango visible.
+
+### Agregado
+- **`tailwind.config.ts`**: keyframes/animaciones `fade-slide-in` y `float`; token de color `border.strong` (#7A94A6); gradiente `gradient-strong` (`#17739F→#12658C`, 4.38–5.35:1) para el relleno de la barra de progreso (donde el celeste claro no llega a 3:1 vs. el track).
+- **`src/app/globals.css`**: guard `@media (prefers-reduced-motion: reduce)` que anula animaciones/transiciones.
+- Spec y coverage en `specs/10b2-onboarding.md` y `specs/10b2-onboarding.coverage.md`.
+
+### Verificación
+- R1–R10 y edge cases cubiertos. `engineering:code-review` (high) sobre el diff: sin hallazgos de correctness. `design:accessibility-review` sobre las 6 pantallas: contraste, zonas táctiles (≥44px) y paridad "Continuar"/"Prefiero seguir" **pasan** AA (re-auditado tras los fixes). `next build` limpio, **vitest 161/161** ✓.
+- **Ningún archivo de seguridad ni otro flujo tocado**: `actions.ts`, `middleware.ts`, `gate.ts`, chat, patrones y perfil sin cambios. `/login` solo recibe los cambios de token de accesibilidad (celeste intacto).
+
 ## [Paso 10B-1] — 2026-07-14 — Rediseño de la pantalla de login
 
 > Paso **puramente visual**: rediseña `/login` con la infraestructura del 10A
