@@ -29,9 +29,10 @@ const config: Config = {
         danger: "#EF4444",
       },
 
-      // ── Radios (3) ───────────────────────────────────────────────────────
+      // ── Radios (4) ───────────────────────────────────────────────────────
       borderRadius: {
         card: "28px",
+        input: "14px", // radio intermedio cómodo para inputs (ni sharp ni pill)
         pill: "999px",
         circle: "50%",
       },

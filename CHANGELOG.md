@@ -3,6 +3,26 @@
 Todos los cambios notables de este proyecto se documentan acá.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [Paso 10B-1] — 2026-07-14 — Rediseño de la pantalla de login
+
+> Paso **puramente visual**: rediseña `/login` con la infraestructura del 10A
+> (tokens, Nunito, shadcn) siguiendo `docs/BRANDING.md`. **Cero cambios de
+> lógica de auth** (`actions.ts` sin tocar); el flujo de login/registro y
+> confirmación de email funciona exactamente igual, solo cambia la presentación.
+
+### Cambiado
+- **`src/app/login/page.tsx`** reescrita con Tailwind + componentes shadcn — **eliminados todos los inline styles** (antes el archivo era 100% estilos inline). Fondo con gradiente celeste→blanco (`bg-gradient-section`), marca "GlucoVida" en Nunito 900, card con radio 28px y sombra celeste. Toggle "Ingresar / Registrarme" en cápsula pill (999px) con el activo en gradiente celeste. Encabezado cálido que cambia según el modo ("Qué bueno verte de nuevo" / "Bienvenido a tu lugar"). Inputs y botón vía shadcn tokenizado; botón primario con gradiente + pill + sombra celeste al hover.
+- **Loading state** en el submit (`useFormStatus`): spinner + "Ingresando…" / "Creando tu cuenta…" y botón deshabilitado mientras autentica. Solo refleja el estado `pending` de la Server Action — no toca la lógica.
+- **Copy de errores** con el tono del branding, nunca crudo de Supabase: credenciales → "Ese email o esa contraseña no coinciden. ¿Probamos de nuevo?"; registro → "No pudimos crear tu cuenta con ese email. ¿Probás con otro?"; fallback → "Algo no salió como esperábamos. ¿Probamos de nuevo?". Arquitectura intacta: las Server Actions redirigen con códigos fijos y la page los traduce.
+
+### Agregado
+- **Token de radio `rounded-input` (14px)** en `tailwind.config.ts` — radio intermedio cómodo para campos de texto (ni sharp ni pill total). Documentado en `docs/BRANDING.md §6`. `src/components/ui/input.tsx` pasa de `rounded-pill` a `rounded-input` (el login es su único consumidor).
+- Spec en `specs/10b1-login.md`.
+
+### Verificación
+- R1–R8 y edge cases (fallback de error, loading state) cubiertos. `next build` limpio, `tsc` ✓, `eslint` ✓, **vitest 161/161** ✓ — ningún test aflojado.
+- **Ninguna otra pantalla ni flujo tocado**: solo `/login` visual. `actions.ts`, seguridad, chat, patrones y perfil sin cambios.
+
 ## [Paso 10A] — 2026-07-14 — Infraestructura de diseño (tokens, Nunito, shadcn)
 
 > Paso **puramente visual**: deja lista la base de diseño para el rediseño de pantallas del 10B. **No se rediseñó ninguna pantalla** y **no se tocó ningún archivo de seguridad** (`seguridad.ts`, pre-filtro de hipoglucemia ni guardrails de no-prescripción).

@@ -1,188 +1,150 @@
 "use client";
 
 import { useState, Suspense } from "react";
+import { useFormStatus } from "react-dom";
 import { useSearchParams } from "next/navigation";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { signIn, signUp } from "./actions";
 
+type Mode = "login" | "register";
+
+/**
+ * Botón de submit con feedback de carga (ver edge case de la spec 10b1): usa
+ * useFormStatus para deshabilitarse y mostrar un spinner mientras la Server
+ * Action autentica. No toca la lógica de auth — solo refleja su estado pending.
+ */
+function SubmitButton({ mode }: { mode: Mode }) {
+  const { pending } = useFormStatus();
+  const label = mode === "login" ? "Ingresar" : "Crear cuenta";
+  const pendingLabel = mode === "login" ? "Ingresando…" : "Creando tu cuenta…";
+
+  return (
+    <Button type="submit" size="lg" className="w-full" disabled={pending}>
+      {pending && (
+        <span
+          aria-hidden
+          className="inline-block size-4 animate-spin rounded-circle border-2 border-white/40 border-t-white"
+        />
+      )}
+      {pending ? pendingLabel : label}
+    </Button>
+  );
+}
+
 function LoginForm() {
-  const [mode, setMode] = useState<"login" | "register">("login");
+  const [mode, setMode] = useState<Mode>("login");
   const params = useSearchParams();
   const error = params.get("error");
   const mensaje = params.get("mensaje");
 
+  // Tono del branding (docs/BRANDING.md §9): jamás un error crudo de Supabase.
+  // Las Server Actions ya redirigen con códigos fijos; acá los traducimos a
+  // texto cálido, y cualquier código no contemplado cae en un fallback amable.
   const errorTexts: Record<string, string> = {
-    credenciales_invalidas: "Email o contraseña incorrectos. Intentá de nuevo.",
-    registro_fallido: "No pudimos crear tu cuenta. Intentá con otro email.",
+    credenciales_invalidas:
+      "Ese email o esa contraseña no coinciden. ¿Probamos de nuevo?",
+    registro_fallido:
+      "No pudimos crear tu cuenta con ese email. ¿Probás con otro?",
   };
-
   const mensajeTexts: Record<string, string> = {
     revisa_tu_email:
       "¡Listo! Te mandamos un email de confirmación. Revisá tu bandeja.",
   };
 
+  const heading =
+    mode === "login" ? "Qué bueno verte de nuevo" : "Bienvenido a tu lugar";
+  const subheading =
+    mode === "login"
+      ? "Ingresá para volver a tu espacio."
+      : "Creá tu cuenta y empecemos juntos.";
+
   return (
-    <div
-      style={{
-        minHeight: "100dvh",
-        backgroundColor: "#FFFFFF",
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: "24px 16px",
-      }}
-    >
+    <div className="flex min-h-dvh flex-col items-center justify-center bg-gradient-section px-4 py-12">
       {/* Logo / Brand */}
-      <div style={{ textAlign: "center", marginBottom: 32 }}>
-        <div
-          style={{
-            width: 64,
-            height: 64,
-            borderRadius: "50%",
-            backgroundColor: "#D6EEFB",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontSize: 32,
-            margin: "0 auto 12px",
-          }}
-        >
+      <div className="mb-8 text-center">
+        <div className="mx-auto mb-3 flex size-16 items-center justify-center rounded-circle bg-primary-air text-3xl">
           🩵
         </div>
-        <h1 style={{ color: "#0F172A", fontSize: 24, fontWeight: 700, margin: 0 }}>
+        <h1 className="text-3xl font-black leading-title text-text">
           GlucoVida
         </h1>
-        <p style={{ color: "#5B6B7C", fontSize: 14, margin: "4px 0 0" }}>
+        <p className="mt-1 text-sm text-muted">
           Tu espacio de convivencia con la diabetes
         </p>
       </div>
 
       {/* Card */}
-      <div
-        style={{
-          width: "100%",
-          maxWidth: 400,
-          backgroundColor: "#FFFFFF",
-          border: "1px solid #E6EEF5",
-          borderRadius: 16,
-          padding: 28,
-          boxShadow: "0 4px 16px rgba(34,167,230,0.08)",
-        }}
-      >
-        {/* Tabs */}
-        <div
-          style={{
-            display: "flex",
-            backgroundColor: "#F1F5F9",
-            borderRadius: 10,
-            padding: 4,
-            marginBottom: 24,
-          }}
-        >
+      <div className="w-full max-w-sm rounded-card border border-border bg-white p-7 shadow-card-hover">
+        {/* Toggle Ingresar / Registrarme (pill) */}
+        <div className="mb-6 flex rounded-pill bg-primary-air p-1">
           {(["login", "register"] as const).map((m) => (
             <button
               key={m}
+              type="button"
               onClick={() => setMode(m)}
-              style={{
-                flex: 1,
-                padding: "8px 0",
-                borderRadius: 8,
-                border: "none",
-                fontSize: 14,
-                fontWeight: 600,
-                cursor: "pointer",
-                backgroundColor: mode === m ? "#22A7E6" : "transparent",
-                color: mode === m ? "#FFFFFF" : "#5B6B7C",
-                transition: "all 0.2s",
-              }}
+              aria-pressed={mode === m}
+              className={cn(
+                "min-h-11 flex-1 rounded-pill text-sm font-bold transition-all",
+                mode === m
+                  ? "bg-gradient-primary text-primary-foreground shadow-btn-hover"
+                  : "text-muted hover:text-text"
+              )}
             >
-              {m === "login" ? "Ingresar" : "Registrarse"}
+              {m === "login" ? "Ingresar" : "Registrarme"}
             </button>
           ))}
         </div>
 
+        {/* Encabezado cálido */}
+        <div className="mb-6">
+          <h2 className="text-xl font-extrabold leading-title text-text">
+            {heading}
+          </h2>
+          <p className="mt-1 text-sm leading-body text-muted">{subheading}</p>
+        </div>
+
         {/* Feedback */}
         {error && (
-          <div
-            style={{
-              backgroundColor: "#FEF2F2",
-              border: "1px solid #EF4444",
-              borderRadius: 8,
-              padding: "10px 14px",
-              marginBottom: 16,
-              fontSize: 13,
-              color: "#991B1B",
-            }}
-          >
-            {errorTexts[error] ?? "Ocurrió un error. Intentá de nuevo."}
+          <div className="mb-4 rounded-input border border-danger bg-danger/5 px-4 py-3 text-sm text-danger">
+            {errorTexts[error] ??
+              "Algo no salió como esperábamos. ¿Probamos de nuevo?"}
           </div>
         )}
         {mensaje && (
-          <div
-            style={{
-              backgroundColor: "#F0FDF4",
-              border: "1px solid #10B981",
-              borderRadius: 8,
-              padding: "10px 14px",
-              marginBottom: 16,
-              fontSize: 13,
-              color: "#065F46",
-            }}
-          >
+          <div className="mb-4 rounded-input border border-success bg-success/5 px-4 py-3 text-sm text-success">
             {mensajeTexts[mensaje] ?? mensaje}
           </div>
         )}
 
-        {/* Form */}
-        <form action={mode === "login" ? signIn : signUp}>
-          <div style={{ marginBottom: 16 }}>
+        {/* Form — misma lógica: la action depende del modo */}
+        <form action={mode === "login" ? signIn : signUp} className="space-y-4">
+          <div className="space-y-1.5">
             <label
               htmlFor="email"
-              style={{
-                display: "block",
-                fontSize: 14,
-                fontWeight: 600,
-                color: "#0F172A",
-                marginBottom: 6,
-              }}
+              className="block text-sm font-semibold text-text"
             >
               Email
             </label>
-            <input
+            <Input
               id="email"
               name="email"
               type="email"
               required
               autoComplete="email"
               placeholder="vos@ejemplo.com"
-              style={{
-                width: "100%",
-                padding: "10px 14px",
-                border: "1px solid #E6EEF5",
-                borderRadius: 10,
-                fontSize: 15,
-                color: "#0F172A",
-                backgroundColor: "#F8FAFC",
-                outline: "none",
-                boxSizing: "border-box",
-              }}
             />
           </div>
 
-          <div style={{ marginBottom: 24 }}>
+          <div className="space-y-1.5">
             <label
               htmlFor="password"
-              style={{
-                display: "block",
-                fontSize: 14,
-                fontWeight: 600,
-                color: "#0F172A",
-                marginBottom: 6,
-              }}
+              className="block text-sm font-semibold text-text"
             >
               Contraseña
             </label>
-            <input
+            <Input
               id="password"
               name="password"
               type="password"
@@ -194,48 +156,16 @@ function LoginForm() {
                 mode === "register" ? "Mínimo 8 caracteres" : "Tu contraseña"
               }
               minLength={mode === "register" ? 8 : undefined}
-              style={{
-                width: "100%",
-                padding: "10px 14px",
-                border: "1px solid #E6EEF5",
-                borderRadius: 10,
-                fontSize: 15,
-                color: "#0F172A",
-                backgroundColor: "#F8FAFC",
-                outline: "none",
-                boxSizing: "border-box",
-              }}
             />
           </div>
 
-          <button
-            type="submit"
-            style={{
-              width: "100%",
-              padding: "12px 0",
-              backgroundColor: "#22A7E6",
-              color: "#FFFFFF",
-              border: "none",
-              borderRadius: 10,
-              fontSize: 16,
-              fontWeight: 700,
-              cursor: "pointer",
-              minHeight: 44,
-            }}
-          >
-            {mode === "login" ? "Ingresar" : "Crear cuenta"}
-          </button>
+          <div className="pt-2">
+            <SubmitButton mode={mode} />
+          </div>
         </form>
       </div>
 
-      <p
-        style={{
-          color: "#5B6B7C",
-          fontSize: 12,
-          marginTop: 20,
-          textAlign: "center",
-        }}
-      >
+      <p className="mt-6 max-w-sm text-center text-xs leading-body text-muted">
         GlucoVida acompaña y educa, no reemplaza a tu equipo médico.
       </p>
     </div>

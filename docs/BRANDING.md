@@ -99,11 +99,16 @@ apuro, sin apretar.
 
 Nada sharp. Todo redondeado.
 
-| Token         | Valor   | Uso                          |
-|---------------|---------|------------------------------|
-| `rounded-card`| `28px`  | Cards                        |
-| `rounded-pill`| `999px` | Botones y pills              |
-| `rounded-circle` | `50%` | Círculos de icono           |
+| Token          | Valor   | Uso                                   |
+|----------------|---------|---------------------------------------|
+| `rounded-card` | `28px`  | Cards                                 |
+| `rounded-input`| `14px`  | Campos de texto (intermedio, cómodo)  |
+| `rounded-pill` | `999px` | Botones y pills                       |
+| `rounded-circle` | `50%` | Círculos de icono                    |
+
+> **Inputs** llevan un radio intermedio (`14px`), no pill: un campo de texto
+> ancho totalmente redondeado (999px) se siente raro y aprieta el contenido. El
+> pill queda para botones y toggles; el input respira con esquinas suaves.
 
 ---
 
