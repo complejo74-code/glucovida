@@ -3,6 +3,25 @@
 Todos los cambios notables de este proyecto se documentan acá.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [Paso 10A] — 2026-07-14 — Infraestructura de diseño (tokens, Nunito, shadcn)
+
+> Paso **puramente visual**: deja lista la base de diseño para el rediseño de pantallas del 10B. **No se rediseñó ninguna pantalla** y **no se tocó ningún archivo de seguridad** (`seguridad.ts`, pre-filtro de hipoglucemia ni guardrails de no-prescripción).
+
+### Agregado
+- **`docs/BRANDING.md`** — fuente de verdad visual de GlucoVida. Documenta la esencia ("¿acompañado o monitoreado?"), **LIGHT MODE PURO** (sin dark mode, nunca), la paleta de 11 colores, los gradientes (celeste → blanco siempre), Nunito, radios (card 28px / pill 999px / circle 50%), sombras celestes (nunca negras), espaciado con aire y el tono de voz rioplatense con la tabla de reemplazos (jamás juzgar un valor de glucosa).
+- **`tailwind.config.ts`** (Tailwind v4, cargado vía `@config` desde `globals.css`) con **todos** los tokens del branding: 11 colores, 3 radios, 2 sombras celestes, 2 gradientes, familia Nunito y line-heights (título 1.1 / body 1.75). Nada hardcodeado: todo vía token.
+- **shadcn/ui con nuestros tokens** (no los defaults): `Button`, `Input`, `Card`, `Select`, `Badge`, `Skeleton` en `src/components/ui/`. El `<Button>` primario sale con **gradiente celeste** (`bg-gradient-primary`) y **radio pill** (`rounded-pill`), touch target ≥ 44px. `components.json` y helper `cn()` en `src/lib/utils.ts`.
+- Dependencias: `@radix-ui/react-slot`, `@radix-ui/react-select`, `class-variance-authority`, `clsx`, `tailwind-merge`, `lucide-react`.
+
+### Cambiado
+- **`src/app/layout.tsx`**: Nunito vía `next/font` (self-hosted, weights 400/600/700/800/900, sin `<link>` suelto), `lang="es"`, `<body class="font-sans">`, metadata de GlucoVida (reemplaza el placeholder de create-next-app).
+- **`src/app/globals.css`**: `@config` al tailwind.config, **eliminado el bloque `@media (prefers-color-scheme: dark)`** (light mode puro), `--foreground` a `#0F172A`, fuente base Nunito.
+
+### Verificación
+- **R1–R5 cerrados** y build de producción limpio (`next build` ✓, 10 páginas generadas). `tsc` ✓, `eslint` ✓, **vitest 161/161** ✓ — ningún test borrado ni aflojado.
+- **Ninguna pantalla existente rota**: solo se tocaron superficies compartidas (layout + globals); ningún `page.tsx` fue modificado.
+- Edge cases: shadcn se extendió limpio sin pisar estilos; se sumó `primary-foreground` (`#FFFFFF`) como token para el texto sobre celeste, sin duplicar colores existentes.
+
 ## [Paso 9.5] — 2026-07-14 — Perfil ampliado (nombre, sexo, peso/altura, insulinas taxativas)
 
 ### Agregado
