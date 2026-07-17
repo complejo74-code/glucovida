@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Nunito } from "next/font/google";
 import "./globals.css";
 
@@ -13,6 +13,15 @@ const nunito = Nunito({
 export const metadata: Metadata = {
   title: "GlucoVida",
   description: "Tu espacio de convivencia con la diabetes.",
+};
+
+// El teclado virtual encoge la unidad `dvh` (en vez de solo tapar contenido).
+// Sin esto, en /chat el `h-dvh` sobra por debajo del teclado, el documento se
+// vuelve scrolleable y el header se va arrastrado. Ver docs de layout de /chat.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  interactiveWidget: "resizes-content",
 };
 
 export default function RootLayout({

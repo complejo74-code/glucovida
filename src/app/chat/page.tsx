@@ -98,13 +98,17 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([SALUDO_INICIAL]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLElement>(null);
 
   // Scroll suave al último mensaje (o al indicador de "escribiendo"), sin saltos
   // bruscos (edge case: historial largo). Se dispara con cada mensaje y con el
-  // loading para que el indicador quede a la vista.
+  // loading para que el indicador quede a la vista. Acotado al contenedor de
+  // mensajes (scrollTo sobre <main>) para que NUNCA scrollee la ventana: con el
+  // teclado abierto, scrollIntoView burbujeaba al documento y arrastraba el
+  // header fuera de la pantalla hasta el próximo render.
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    const el = scrollRef.current;
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
   }, [messages, loading]);
 
   // ── LÓGICA INTACTA (R9) ────────────────────────────────────────────────────
@@ -163,7 +167,7 @@ export default function ChatPage() {
   const enviarDeshabilitado = !input.trim() || loading;
 
   return (
-    <div className="mx-auto flex min-h-dvh max-w-lg flex-col bg-gradient-section sm:border-x sm:border-border">
+    <div className="mx-auto flex h-dvh max-w-lg flex-col bg-gradient-section sm:border-x sm:border-border">
       {/* ── Header (R6): sutil, sin métricas, "no es un dashboard" ── */}
       <header className="flex items-center gap-3 border-b border-border bg-white/95 px-4 py-3 backdrop-blur">
         <div
@@ -203,8 +207,9 @@ export default function ChatPage() {
 
       {/* ── Mensajes: contenedor anunciado a lectores de pantalla (R7) ── */}
       <main
+        ref={scrollRef}
         aria-label="Conversación con Gluco"
-        className="flex flex-1 flex-col overflow-y-auto px-4 py-5"
+        className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-5"
       >
         {/* Región de log: mantiene <main> como landmark y anuncia los mensajes
             nuevos (y el "escribiendo") de forma polite, sin interrumpir (R7). */}
@@ -287,7 +292,6 @@ export default function ChatPage() {
             </div>
           </div>
         )}
-          <div ref={bottomRef} />
         </div>
       </main>
 
