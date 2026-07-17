@@ -10,7 +10,7 @@
 >    estado real al cierre, no el de hace tres pasos.
 > 3. Se commitea normal (no es historial, es orientación).
 >
-> _Última actualización: 2026-07-16 — cierre del paso 10B-4 (rediseño COMPLETO)._
+> _Última actualización: 2026-07-17 — cierre del paso 10B-5 (feedback fiel de guardado en /perfil)._
 
 ---
 
@@ -44,9 +44,10 @@ docs/               → un doc por paso + BRANDING.md (fuente de verdad visual)
 
 ## Estado actual
 
-**Paso 10B-4 cerrado** (2026-07-16). Build de producción limpio, **Vitest
-161/161**. **El rediseño visual del paso 10 está COMPLETO**: login ✅, onboarding
-✅, chat ✅, perfil ✅. Ya no queda ninguna pantalla con el diseño viejo.
+**Paso 10B-5 cerrado** (2026-07-17). Build de producción limpio, **Vitest
+168/168**. El rediseño visual del paso 10 quedó COMPLETO en el 10B-4 (login ✅,
+onboarding ✅, chat ✅, perfil ✅); el 10B-5 fue un **micro-paso de lógica** que
+cerró el pendiente técnico del guardado silencioso en `/perfil` (ver más abajo).
 
 El proyecto viene de una tanda de **rediseño visual** (paso 10) montada sobre una
 base funcional ya sólida (pasos 1–9.5: chat seguro, auth, persistencia con RLS,
@@ -62,6 +63,7 @@ cruzados, captura conversacional de variables, perfil + onboarding).
 | **10B-2** | Rediseño de `/onboarding` (6 pasos) + endurecimiento de accesibilidad a **WCAG 2.1 AA** | ✅ cerrado |
 | **10B-3** | Rediseño de `/chat` (burbujas, chip de glucemia, "escribiendo", input tokenizado, aria-live, estado vacío) | ✅ cerrado |
 | **10B-4** | Rediseño de `/perfil` (cards 28px, bloques, dos slots de insulina, toast de guardado, sin IMC) | ✅ cerrado |
+| **10B-5** | Feedback fiel de guardado en `/perfil` (Server Actions devuelven `{ ok, error? }`; el toast de éxito solo si la DB confirmó; guardado parcial diferenciado) — **lógica, no rediseño** | ✅ cerrado |
 
 **El rediseño del paso 10 está COMPLETO.** Las cuatro pantallas del asistente
 conversacional (login, onboarding, chat, perfil) ya usan el sistema del 10A.
@@ -196,15 +198,15 @@ paso es un commit directo. Commitear/pushear **solo cuando lo pide**. Actualizar
   `supabaseResponse` (patrón pre-existente del repo). Ante rotación de token se
   puede perder la cookie nueva. Detectado en el review del paso 9, sin resolver
   todavía.
-- **Error de DB silencioso en `actualizarPerfil` (pendiente técnico del 10B-4).**
-  `actualizarPerfil` (y `agregarInsulina` / `eliminarInsulina`) **tragan** sus
-  errores de Supabase (`console.error` + `return void`), así que el cliente no
-  puede distinguir éxito de fallo de DB: el **toast de éxito** de `/perfil` puede
-  mostrarse aunque el `UPDATE` haya fallado (el toast de error solo cubre fallas
-  que la acción **propaga**: red / invocación). Se dejó así **a propósito** por el
-  guardrail R7 del 10B-4 (cero cambios en Server Actions durante el rediseño). El
-  **fix** es un **micro-paso aparte**, después del rediseño: que las acciones
-  devuelvan `{ ok: boolean }` y que el toast se decida con eso. Bajo riesgo, pero
-  conviene para no dar "guardado" en falso en una app de salud.
+- **~~Error de DB silencioso en `actualizarPerfil`~~ — CERRADO en el 10B-5
+  (2026-07-17).** Era el pendiente técnico del 10B-4: `actualizarPerfil` (y
+  `agregarInsulina` / `eliminarInsulina`) tragaban el error de Supabase y
+  devolvían `void`, así que el toast de éxito de `/perfil` podía aparecer con un
+  `UPDATE`/`INSERT` fallido. **Resuelto:** las tres Server Actions devuelven
+  `ResultadoGuardado = { ok: true } | { ok: false; error: string }`; el frontend
+  muestra "guardado 💙" **solo** si `ok=true`, con mensaje de error **cálido**
+  (el crudo de Supabase queda en el log del servidor). El guardado **parcial**
+  (borró la anterior, falló el alta) se comunica distinto del fallo total.
+  Cubierto por `__tests__/perfil-actions.test.ts`. RLS y persistencia sin cambios.
 - **`menstrua`** se persiste pero a propósito **no se surfacea** en el contexto:
   queda reservada para un futuro subagente hormonal que todavía no existe.

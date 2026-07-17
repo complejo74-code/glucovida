@@ -3,6 +3,53 @@
 Todos los cambios notables de este proyecto se documentan acá.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [Paso 10B-5] — 2026-07-17 — Feedback fiel de guardado en /perfil
+
+> Micro-paso de **manejo de resultado**, no de rediseño: cierra el pendiente
+> técnico anotado en el 10B-4 — `actualizarPerfil` (y `agregarInsulina` /
+> `eliminarInsulina`) **tragaban** el error de Supabase y devolvían `void`, así
+> que el toast de éxito de `/perfil` podía mostrarse aunque el `UPDATE`/`INSERT`
+> hubiera fallado. En una app de salud eso es dar "guardado" en falso. **RLS y
+> persistencia sin cambios** (spec 10B-5 R4): mismo payload, misma escritura,
+> mismo `.eq`. Solo cambia **cómo se reporta** el resultado.
+
+### Cambiado
+- **`src/app/perfil/actions.ts`** — las tres Server Actions ahora devuelven un
+  resultado explícito `ResultadoGuardado = { ok: true } | { ok: false; error: string }`
+  en vez de `void` (R1). Capturan el `error` real de Supabase (no solo fallas de
+  red/invocación), lo loguean en el **servidor** (`console.error`) y devuelven un
+  mensaje **cálido** apto para UI — el detalle técnico de Supabase **nunca** viaja
+  al cliente (R3). `agregarInsulina` con clase inválida también devuelve `{ ok:false }`
+  en vez de un `return` silencioso.
+- **`src/app/perfil/PerfilForm.tsx`** — `guardar()` y `aplicarSlot()` deciden el
+  toast con el resultado **real** de cada escritura: "Listo, guardado 💙" **solo**
+  si `ok=true`; si `ok=false`, toast de error cálido (R2). El `catch` queda como
+  fallback para fallas que la acción ni siquiera pudo devolver (red / acción que
+  lanza).
+
+### Agregado
+- **Guardado parcial diferenciado (edge case).** Cambiar una insulina = eliminar
+  la anterior + agregar la nueva. Si el borrado sale bien pero el alta falla, el
+  usuario ve un mensaje **distinto** del fallo total ("Quitamos la anterior pero
+  no pudimos guardar la nueva. Volvé a elegirla, por favor.") — tiene que saber
+  que quedó **sin** la insulina que tenía, no un OK genérico que oculte la falla.
+  Reintentar corre de nuevo **sin recargar** la página.
+- **`__tests__/perfil-actions.test.ts`** (7 casos, R5): mockean el cliente de
+  Supabase y verifican que ante un `error` de DB las acciones devuelven
+  `{ ok: false }` (no éxito silencioso) y que el mensaje para la UI es **cálido**,
+  nunca el crudo de Supabase (RLS, duplicate key, permission denied).
+- Spec en `specs/10b5-feedback-guardado.md`.
+
+### Verificación
+- Definición de done completa. `tsc --noEmit` ✓, `next build` limpio, **vitest
+  168/168** ✓ (161 previos + 7 nuevos). `code-review` (high) sobre el diff **sin
+  hallazgos**. Antes/después demostrado ejecutando las actions reales contra un
+  Supabase que simula error (RLS / duplicate key / falla parcial): el toast de
+  éxito ya **no** aparece ante un fallo de DB.
+- **Ningún archivo de seguridad ni de RLS/persistencia tocado**: `middleware.ts`,
+  `gate.ts`, seguridad, chat, onboarding y login sin cambios; la lógica de qué se
+  guarda en `usuario` / `insulina_usuario` es idéntica.
+
 ## [Paso 10B-4] — 2026-07-16 — Rediseño de la pantalla de perfil
 
 > Paso **puramente visual**: rediseña `/perfil` con el sistema del 10A/10B-1/2/3

@@ -78,17 +78,22 @@ export default function PerfilForm({
     toastTimer.current = setTimeout(() => setToast(null), 3000);
   }
 
+  // Mensaje cálido de fallback ante una falla observable (red / acción que lanza),
+  // cuando la acción ni siquiera pudo devolver un resultado (R2/R3).
+  const ERROR_RED = "Algo no salió como esperábamos. ¿Probamos de nuevo?";
+
   // ── Guardar datos personales + cuerpo (R4) ──────────────────────────────────
-  // Lógica de guardado intacta (R7): mismo payload y misma Server Action. El
-  // try/catch solo agrega feedback cálido ante una falla observable (red / acción
-  // que lanza). actualizarPerfil no cambia.
+  // Lógica de guardado intacta (R7): mismo payload y misma Server Action. Ahora
+  // el toast se decide con el resultado REAL de la escritura ({ ok, error }): el
+  // "guardado 💙" solo aparece si la DB confirmó (R2). Qué/cómo se persiste no
+  // cambia (R4); solo se propaga y usa el resultado.
   function guardar() {
     const anioNum = anio.trim() ? parseInt(anio, 10) : NaN;
     const pesoNum = peso.trim() ? parseFloat(peso) : NaN;
     const alturaNum = altura.trim() ? parseInt(altura, 10) : NaN;
     startTransition(async () => {
       try {
-        await actualizarPerfil({
+        const res = await actualizarPerfil({
           nombre: nombre.trim() ? nombre.trim() : null,
           tipoDiabetes,
           anioNacimiento: Number.isInteger(anioNum) ? anioNum : null,
@@ -96,34 +101,52 @@ export default function PerfilForm({
           pesoKg: Number.isFinite(pesoNum) ? pesoNum : null,
           alturaCm: Number.isInteger(alturaNum) ? alturaNum : null,
         });
-        mostrarToast("exito", "Listo, guardado 💙");
+        if (res.ok) mostrarToast("exito", "Listo, guardado 💙");
+        else mostrarToast("error", res.error);
       } catch {
-        mostrarToast(
-          "error",
-          "Algo no salió como esperábamos. ¿Probamos de nuevo?"
-        );
+        mostrarToast("error", ERROR_RED);
       }
     });
   }
 
   // ── Aplicar un cambio de slot de insulina (agregar / desactivar / cambiar) ──
   // Usa SOLO las Server Actions existentes (R7): cambiar = eliminar la anterior +
-  // agregar la nueva; desactivar = eliminar. Ninguna acción se modifica.
+  // agregar la nueva; desactivar = eliminar. Ninguna acción se modifica. El toast
+  // se decide con el resultado real de cada escritura (R2), y el caso de guardado
+  // PARCIAL (se borró la anterior pero el alta de la nueva falló) se comunica
+  // distinto de un fallo total (edge case): el usuario tiene que saber que quedó
+  // sin la insulina que tenía. Reintentar vuelve a correr sin recargar.
   function aplicarSlot(actual: InsulinaItem | null, target: TargetInsulina) {
     startTransition(async () => {
       try {
+        // Desactivar: solo eliminar la actual (si había).
         if (!target) {
-          if (actual) await eliminarInsulina(actual.id);
-        } else {
-          if (actual) await eliminarInsulina(actual.id);
-          await agregarInsulina(target.clase, target.marca ?? "");
+          if (actual) {
+            const del = await eliminarInsulina(actual.id);
+            if (!del.ok) return mostrarToast("error", del.error);
+          }
+          return mostrarToast("exito", "Insulinas actualizadas 💙");
+        }
+
+        // Cambiar / agregar: eliminar la anterior (si había) y luego agregar.
+        if (actual) {
+          const del = await eliminarInsulina(actual.id);
+          if (!del.ok) return mostrarToast("error", del.error);
+        }
+        const add = await agregarInsulina(target.clase, target.marca ?? "");
+        if (!add.ok) {
+          // Falla parcial: si había una anterior, ya se borró y la nueva no entró.
+          // No es lo mismo que "no pasó nada": hay que avisarlo distinto.
+          return mostrarToast(
+            "error",
+            actual
+              ? "Quitamos la anterior pero no pudimos guardar la nueva. Volvé a elegirla, por favor."
+              : add.error
+          );
         }
         mostrarToast("exito", "Insulinas actualizadas 💙");
       } catch {
-        mostrarToast(
-          "error",
-          "No pudimos actualizar tus insulinas. ¿Probamos de nuevo?"
-        );
+        mostrarToast("error", ERROR_RED);
       }
     });
   }
