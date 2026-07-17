@@ -10,7 +10,7 @@
 >    estado real al cierre, no el de hace tres pasos.
 > 3. Se commitea normal (no es historial, es orientación).
 >
-> _Última actualización: 2026-07-16 — cierre del paso 10B-3._
+> _Última actualización: 2026-07-16 — cierre del paso 10B-4 (rediseño COMPLETO)._
 
 ---
 
@@ -44,8 +44,9 @@ docs/               → un doc por paso + BRANDING.md (fuente de verdad visual)
 
 ## Estado actual
 
-**Paso 10B-3 cerrado** (2026-07-16). Build de producción limpio, **Vitest
-161/161**.
+**Paso 10B-4 cerrado** (2026-07-16). Build de producción limpio, **Vitest
+161/161**. **El rediseño visual del paso 10 está COMPLETO**: login ✅, onboarding
+✅, chat ✅, perfil ✅. Ya no queda ninguna pantalla con el diseño viejo.
 
 El proyecto viene de una tanda de **rediseño visual** (paso 10) montada sobre una
 base funcional ya sólida (pasos 1–9.5: chat seguro, auth, persistencia con RLS,
@@ -60,16 +61,25 @@ cruzados, captura conversacional de variables, perfil + onboarding).
 | **10B-1** | Rediseño de `/login` | ✅ cerrado |
 | **10B-2** | Rediseño de `/onboarding` (6 pasos) + endurecimiento de accesibilidad a **WCAG 2.1 AA** | ✅ cerrado |
 | **10B-3** | Rediseño de `/chat` (burbujas, chip de glucemia, "escribiendo", input tokenizado, aria-live, estado vacío) | ✅ cerrado |
-| **Perfil (`/perfil`)** | Rediseño visual | 🔒 pendiente |
+| **10B-4** | Rediseño de `/perfil` (cards 28px, bloques, dos slots de insulina, toast de guardado, sin IMC) | ✅ cerrado |
 
-**Lo que falta del rediseño: solo `/perfil`.** Es la última pantalla que todavía
-no pasó por el sistema del 10A. Toda la infraestructura visual (tokens, Nunito,
-shadcn, animaciones, tokens de accesibilidad AA, radio de burbuja) ya está lista
-para aplicarla — es trabajo de presentación, sin lógica nueva.
+**El rediseño del paso 10 está COMPLETO.** Las cuatro pantallas del asistente
+conversacional (login, onboarding, chat, perfil) ya usan el sistema del 10A.
+No queda ninguna pantalla con el diseño viejo.
 
-> Regla que se mantuvo en todo el paso 10 y hay que mantener: **el rediseño es
-> puramente visual.** No se toca `actions.ts`, `middleware.ts`, `gate.ts`,
-> seguridad, chat (lógica), patrones ni perfil (lógica). Solo presentación.
+> Regla que se mantuvo en todo el paso 10: **el rediseño fue puramente visual.**
+> No se tocó `actions.ts`, `middleware.ts`, `gate.ts`, seguridad, chat (lógica),
+> patrones ni perfil (lógica). Solo presentación.
+
+### Nota del 10B-4 — insulinas en `/perfil` con el modelo de dos slots
+El `/perfil` viejo tenía una **lista libre** (agregar N insulinas de cualquier
+clase, incluida "mixta" explícita). El 10B-4 lo pasó a los **dos slots** del
+onboarding (rápida / basal-lenta), que es lo aprobado. Consecuencia decidida con
+el dueño: ya **no se crea** una `mixta` explícita desde `/perfil` (las premezclas
+van por "Otra", como en el onboarding). Lo ya guardado como `mixta` (o duplicado)
+**no se pierde ni se oculta**: cae en el bloque **"Otras que tenés cargadas"**,
+donde se puede ver y quitar. `agregar`/`eliminar` son las Server Actions de
+siempre; cambiar de marca es `eliminar` + `agregar` (orquestación de cliente).
 
 ---
 
@@ -186,7 +196,15 @@ paso es un commit directo. Commitear/pushear **solo cuando lo pide**. Actualizar
   `supabaseResponse` (patrón pre-existente del repo). Ante rotación de token se
   puede perder la cookie nueva. Detectado en el review del paso 9, sin resolver
   todavía.
-- **`/perfil` sin rediseñar** (ver Estado actual) — es lo único que falta del
-  paso 10; el próximo tramo natural. `/chat` ya se cerró en 10B-3.
+- **Error de DB silencioso en `actualizarPerfil` (pendiente técnico del 10B-4).**
+  `actualizarPerfil` (y `agregarInsulina` / `eliminarInsulina`) **tragan** sus
+  errores de Supabase (`console.error` + `return void`), así que el cliente no
+  puede distinguir éxito de fallo de DB: el **toast de éxito** de `/perfil` puede
+  mostrarse aunque el `UPDATE` haya fallado (el toast de error solo cubre fallas
+  que la acción **propaga**: red / invocación). Se dejó así **a propósito** por el
+  guardrail R7 del 10B-4 (cero cambios en Server Actions durante el rediseño). El
+  **fix** es un **micro-paso aparte**, después del rediseño: que las acciones
+  devuelvan `{ ok: boolean }` y que el toast se decida con eso. Bajo riesgo, pero
+  conviene para no dar "guardado" en falso en una app de salud.
 - **`menstrua`** se persiste pero a propósito **no se surfacea** en el contexto:
   queda reservada para un futuro subagente hormonal que todavía no existe.

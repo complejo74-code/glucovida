@@ -1,31 +1,45 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import Link from "next/link";
+import { ArrowLeft } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
-  OPCIONES_CLASE_INSULINA,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { cn } from "@/lib/utils";
+import {
+  MARCAS_BASAL_LENTA,
+  MARCAS_RAPIDAS,
   OPCIONES_SEXO,
   OPCIONES_TIPO_DIABETES,
-  marcasDeClase,
+  claseDeMarca,
   type ClaseInsulina,
   type Sexo,
   type TipoDiabetes,
 } from "@/lib/perfil/tipos";
 import { actualizarPerfil, agregarInsulina, eliminarInsulina } from "./actions";
 
-const AZUL = "#22A7E6";
-const AZUL_FUERTE = "#1D90C7";
-const AZUL_AIRE = "#D6EEFB";
-const TEXTO = "#0F172A";
-const MUTED = "#5B6B7C";
-const BORDE = "#E6EEF5";
-const EXITO = "#10B981";
-
+/** Una insulina activa del usuario (tal como la carga la page vía RLS). */
 interface InsulinaItem {
   id: string;
   clase: ClaseInsulina;
   marca: string | null;
 }
+
+/** Sentinel del Select para "No uso" (Radix no permite un item con value=""). */
+const NO_USO = "no_uso";
+
+/** Objetivo a persistir para un slot, o null = desactivar. */
+type TargetInsulina = { clase: ClaseInsulina; marca: string | null } | null;
+
+/** Toast cálido de feedback (R4 + edge case de error). */
+type Toast = { tono: "exito" | "error"; texto: string };
 
 export default function PerfilForm({
   inicial,
@@ -53,379 +67,560 @@ export default function PerfilForm({
   const [altura, setAltura] = useState(
     inicial.alturaCm ? String(inicial.alturaCm) : ""
   );
-  const [claseDraft, setClaseDraft] = useState<ClaseInsulina | "">("");
-  // Valor del <select> de marca: "" | marca conocida | "no_se" | "otra".
-  const [marcaDraft, setMarcaDraft] = useState("");
-  const [marcaLibre, setMarcaLibre] = useState("");
-  const [guardado, setGuardado] = useState(false);
   const [pending, startTransition] = useTransition();
 
+  const [toast, setToast] = useState<Toast | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function mostrarToast(tono: Toast["tono"], texto: string) {
+    setToast({ tono, texto });
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(null), 3000);
+  }
+
+  // ── Guardar datos personales + cuerpo (R4) ──────────────────────────────────
+  // Lógica de guardado intacta (R7): mismo payload y misma Server Action. El
+  // try/catch solo agrega feedback cálido ante una falla observable (red / acción
+  // que lanza). actualizarPerfil no cambia.
   function guardar() {
     const anioNum = anio.trim() ? parseInt(anio, 10) : NaN;
     const pesoNum = peso.trim() ? parseFloat(peso) : NaN;
     const alturaNum = altura.trim() ? parseInt(altura, 10) : NaN;
     startTransition(async () => {
-      await actualizarPerfil({
-        nombre: nombre.trim() ? nombre.trim() : null,
-        tipoDiabetes,
-        anioNacimiento: Number.isInteger(anioNum) ? anioNum : null,
-        sexo,
-        pesoKg: Number.isFinite(pesoNum) ? pesoNum : null,
-        alturaCm: Number.isInteger(alturaNum) ? alturaNum : null,
-      });
-      setGuardado(true);
-      setTimeout(() => setGuardado(false), 2500);
+      try {
+        await actualizarPerfil({
+          nombre: nombre.trim() ? nombre.trim() : null,
+          tipoDiabetes,
+          anioNacimiento: Number.isInteger(anioNum) ? anioNum : null,
+          sexo,
+          pesoKg: Number.isFinite(pesoNum) ? pesoNum : null,
+          alturaCm: Number.isInteger(alturaNum) ? alturaNum : null,
+        });
+        mostrarToast("exito", "Listo, guardado 💙");
+      } catch {
+        mostrarToast(
+          "error",
+          "Algo no salió como esperábamos. ¿Probamos de nuevo?"
+        );
+      }
     });
   }
 
-  function marcaFinal(): string {
-    if (marcaDraft === "otra") return marcaLibre.trim();
-    if (marcaDraft === "no_se" || marcaDraft === "") return "";
-    return marcaDraft;
-  }
-
-  function onAgregar() {
-    if (!claseDraft) return;
+  // ── Aplicar un cambio de slot de insulina (agregar / desactivar / cambiar) ──
+  // Usa SOLO las Server Actions existentes (R7): cambiar = eliminar la anterior +
+  // agregar la nueva; desactivar = eliminar. Ninguna acción se modifica.
+  function aplicarSlot(actual: InsulinaItem | null, target: TargetInsulina) {
     startTransition(async () => {
-      await agregarInsulina(claseDraft, marcaFinal());
-      setClaseDraft("");
-      setMarcaDraft("");
-      setMarcaLibre("");
+      try {
+        if (!target) {
+          if (actual) await eliminarInsulina(actual.id);
+        } else {
+          if (actual) await eliminarInsulina(actual.id);
+          await agregarInsulina(target.clase, target.marca ?? "");
+        }
+        mostrarToast("exito", "Insulinas actualizadas 💙");
+      } catch {
+        mostrarToast(
+          "error",
+          "No pudimos actualizar tus insulinas. ¿Probamos de nuevo?"
+        );
+      }
     });
   }
 
-  function onEliminar(id: string) {
-    startTransition(async () => {
-      await eliminarInsulina(id);
-    });
-  }
-
-  const marcasClase = claseDraft ? marcasDeClase(claseDraft) : [];
+  // Reparto de las insulinas activas en los dos slots del onboarding. Lo que no
+  // encaja (una mixta, o una segunda del mismo tipo) NO se oculta: cae en "otras"
+  // para poder verlo y quitarlo (no se pierde ni un dato — R7).
+  const slotRapida = insulinas.find((i) => i.clase === "rapida") ?? null;
+  const slotBasal =
+    insulinas.find((i) => i.clase === "basal" || i.clase === "lenta") ?? null;
+  const otras = insulinas.filter(
+    (i) => i.id !== slotRapida?.id && i.id !== slotBasal?.id
+  );
+  const sinInsulinas = insulinas.length === 0;
 
   return (
-    <div
-      style={{
-        minHeight: "100dvh",
-        backgroundColor: "#FFFFFF",
-        maxWidth: 480,
-        margin: "0 auto",
-        padding: "0 0 40px",
-      }}
-    >
-      {/* Header */}
-      <div
-        style={{
-          backgroundColor: AZUL,
-          padding: "16px 20px",
-          display: "flex",
-          alignItems: "center",
-          gap: 12,
-        }}
-      >
-        <Link href="/chat" style={{ color: "#FFFFFF", fontSize: 22, textDecoration: "none" }}>
-          ←
-        </Link>
-        <p style={{ color: "#FFFFFF", fontWeight: 700, fontSize: 17, margin: 0 }}>
-          Tu perfil
-        </p>
-      </div>
+    <div className="min-h-dvh bg-gradient-section px-4 py-6">
+      <div className="mx-auto w-full max-w-md">
+        {/* Volver al chat (R6) */}
+        <div className="mb-2">
+          <Button asChild variant="ghost" size="sm">
+            <Link href="/chat">
+              <ArrowLeft aria-hidden />
+              Volver al chat
+            </Link>
+          </Button>
+        </div>
 
-      <div style={{ padding: "20px 16px" }}>
-        <p style={{ color: MUTED, fontSize: 13, margin: "0 0 24px", lineHeight: 1.5 }}>
-          Esto ayuda a Gluco a acompañarte mejor. Podés cambiar lo que quieras,
-          cuando quieras — las cosas cambian.
-        </p>
-
-        {/* Nombre */}
-        <Seccion titulo="¿Cómo querés que te llame?">
-          <input
-            type="text"
-            value={nombre}
-            onChange={(e) => setNombre(e.target.value)}
-            placeholder="Tu nombre"
-            maxLength={40}
-            style={inputEstilo}
-          />
-        </Seccion>
-
-        {/* Tipo de diabetes */}
-        <Seccion titulo="Tipo de diabetes">
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-            {OPCIONES_TIPO_DIABETES.map((o) => (
-              <button
-                key={o.valor}
-                onClick={() =>
-                  setTipoDiabetes((prev) => (prev === o.valor ? null : o.valor))
-                }
-                style={opcionBtn(tipoDiabetes === o.valor)}
-              >
-                {o.etiqueta}
-              </button>
-            ))}
+        {/* Encabezado cálido, consistente con el onboarding */}
+        <div className="mb-5 text-center">
+          <div
+            aria-hidden
+            className="mx-auto mb-3 flex size-14 items-center justify-center rounded-circle bg-primary-air text-3xl"
+          >
+            🩵
           </div>
-        </Seccion>
+          <h1 className="text-2xl font-black leading-title text-text">
+            Tu perfil
+          </h1>
+          <p className="mx-auto mt-2 max-w-sm text-sm leading-body text-muted">
+            Esto ayuda a Gluco a acompañarte mejor. Cambiá lo que quieras, cuando
+            quieras — las cosas cambian.
+          </p>
+        </div>
 
-        {/* Año */}
-        <Seccion titulo="Año de nacimiento">
-          <input
-            type="number"
-            inputMode="numeric"
-            value={anio}
-            onChange={(e) => setAnio(e.target.value)}
-            placeholder="Ej: 1990"
-            min={1900}
-            max={2026}
-            style={inputEstilo}
-          />
-        </Seccion>
+        {/* Toast de feedback (R4). Región viva SIEMPRE presente en el DOM para
+            que el lector de pantalla anuncie el cambio de forma fiable (si se
+            montara junto con el texto, algunos SR se lo pierden). El pill se
+            renderiza adentro según haya toast. */}
+        <div role="status" aria-live="polite">
+          {toast && (
+            <div
+              className={cn(
+                "mb-4 animate-fade-slide-in rounded-pill border px-4 py-2.5 text-center text-sm font-bold",
+                toast.tono === "error"
+                  ? "border-danger bg-danger/10 text-text"
+                  : "border-success bg-success/10 text-text"
+              )}
+            >
+              {toast.texto}
+            </div>
+          )}
+        </div>
 
-        {/* Sexo */}
-        <Seccion titulo="Sexo">
-          <div style={{ display: "flex", gap: 10 }}>
-            {OPCIONES_SEXO.map((o) => (
-              <button
-                key={o.valor}
-                onClick={() =>
-                  setSexo((prev) => (prev === o.valor ? null : o.valor))
-                }
-                style={{ ...opcionBtn(sexo === o.valor), flex: 1, fontSize: 13 }}
-              >
-                {o.etiqueta}
-              </button>
-            ))}
-          </div>
-        </Seccion>
+        {/* ── Card 1: datos personales + cuerpo ── */}
+        <div className="rounded-card border border-border bg-white p-6 shadow-card-hover">
+          {/* Bloque: sobre vos */}
+          <Bloque
+            titulo="Sobre vos"
+            ayuda="Lo básico para que Gluco te hable por tu nombre y en tu contexto."
+          >
+            <Campo htmlFor="nombre" etiqueta="¿Cómo querés que te llame?">
+              <Input
+                id="nombre"
+                type="text"
+                value={nombre}
+                onChange={(e) => setNombre(e.target.value)}
+                placeholder="Tu nombre"
+                maxLength={40}
+              />
+            </Campo>
 
-        {/* Peso y altura */}
-        <Seccion titulo="Peso y altura">
-          <div style={{ display: "flex", gap: 10 }}>
-            <input
-              type="number"
-              inputMode="decimal"
-              value={peso}
-              onChange={(e) => setPeso(e.target.value)}
-              placeholder="Peso (kg)"
-              min={20}
-              max={400}
-              style={{ ...inputEstilo, flex: 1 }}
-            />
-            <input
-              type="number"
-              inputMode="numeric"
-              value={altura}
-              onChange={(e) => setAltura(e.target.value)}
-              placeholder="Altura (cm)"
-              min={50}
-              max={250}
-              style={{ ...inputEstilo, flex: 1 }}
-            />
-          </div>
-        </Seccion>
+            <Campo etiqueta="Tipo de diabetes" comoFieldset>
+              <div className="grid grid-cols-2 gap-2.5">
+                {OPCIONES_TIPO_DIABETES.map((o) => (
+                  <OpcionToggle
+                    key={o.valor}
+                    activo={tipoDiabetes === o.valor}
+                    onClick={() =>
+                      setTipoDiabetes((prev) => (prev === o.valor ? null : o.valor))
+                    }
+                  >
+                    {o.etiqueta}
+                  </OpcionToggle>
+                ))}
+              </div>
+            </Campo>
 
-        {/* Guardar perfil */}
-        <button
-          onClick={guardar}
-          disabled={pending}
-          style={{
-            ...primaryBtn,
-            backgroundColor: guardado ? EXITO : AZUL,
-            opacity: pending ? 0.7 : 1,
-          }}
-        >
-          {guardado ? "✓ Guardado" : pending ? "Guardando…" : "Guardar cambios"}
-        </button>
+            <Campo htmlFor="anio" etiqueta="Año de nacimiento">
+              <Input
+                id="anio"
+                type="number"
+                inputMode="numeric"
+                value={anio}
+                onChange={(e) => setAnio(e.target.value)}
+                placeholder="Ej: 1990"
+                min={1900}
+                max={2026}
+              />
+            </Campo>
 
-        {/* Insulinas */}
-        <div style={{ marginTop: 32 }}>
-          <Seccion titulo="Tus insulinas">
-            {insulinas.length === 0 ? (
-              <p style={{ color: MUTED, fontSize: 13, margin: "0 0 12px" }}>
-                No cargaste ninguna. Si usás insulina, agregala para que Gluco
-                pueda hablarte de las tuyas.
+            <Campo etiqueta="Sexo" comoFieldset>
+              <div className="flex flex-wrap gap-2.5">
+                {OPCIONES_SEXO.map((o) => (
+                  <OpcionToggle
+                    key={o.valor}
+                    activo={sexo === o.valor}
+                    className="flex-1 whitespace-nowrap"
+                    onClick={() =>
+                      setSexo((prev) => (prev === o.valor ? null : o.valor))
+                    }
+                  >
+                    {o.etiqueta}
+                  </OpcionToggle>
+                ))}
+              </div>
+            </Campo>
+          </Bloque>
+
+          <Separador />
+
+          {/* Bloque: tu cuerpo — SIN IMC ni juicio (R5) */}
+          <Bloque
+            titulo="Tu cuerpo"
+            ayuda="Solo para dar contexto a Gluco. Nunca para juzgar tu cuerpo."
+          >
+            <div className="flex gap-3">
+              <Campo htmlFor="peso" etiqueta="Peso (kg)" className="flex-1">
+                <Input
+                  id="peso"
+                  type="number"
+                  inputMode="decimal"
+                  value={peso}
+                  onChange={(e) => setPeso(e.target.value)}
+                  placeholder="Ej: 70"
+                  min={20}
+                  max={400}
+                  className="text-center"
+                />
+              </Campo>
+              <Campo htmlFor="altura" etiqueta="Altura (cm)" className="flex-1">
+                <Input
+                  id="altura"
+                  type="number"
+                  inputMode="numeric"
+                  value={altura}
+                  onChange={(e) => setAltura(e.target.value)}
+                  placeholder="Ej: 170"
+                  min={50}
+                  max={250}
+                  className="text-center"
+                />
+              </Campo>
+            </div>
+          </Bloque>
+
+          {/* Guardar (R4): gradiente + pill (Button primary) */}
+          <Button
+            type="button"
+            size="lg"
+            className="mt-6 w-full"
+            onClick={guardar}
+            disabled={pending}
+          >
+            {pending ? "Guardando…" : "Guardar cambios"}
+          </Button>
+        </div>
+
+        {/* ── Card 2: insulinas (dos slots como el onboarding, R3) ── */}
+        <div className="mt-5 rounded-card border border-border bg-white p-6 shadow-card-hover">
+          <Bloque
+            titulo="Tus insulinas"
+            ayuda="Así Gluco sabe de cuáles hablás. Siempre como info, nunca te va a indicar una dosis."
+          >
+            {sinInsulinas && (
+              <p className="mb-3 rounded-input bg-primary-air/50 px-4 py-3 text-sm leading-body text-text">
+                Todavía no cargaste tus insulinas — elegí abajo las que uses y
+                Gluco las tiene en cuenta.
               </p>
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>
-                {insulinas.map((i) => {
-                  const etiqueta =
-                    OPCIONES_CLASE_INSULINA.find((o) => o.valor === i.clase)
-                      ?.etiqueta ?? i.clase;
-                  return (
+            )}
+
+            <div className="flex flex-col gap-3">
+              <SlotInsulina
+                titulo="Tu insulina rápida"
+                ayuda="La de las comidas"
+                marcas={MARCAS_RAPIDAS}
+                claseDefault="rapida"
+                actual={slotRapida}
+                pending={pending}
+                onAplicar={aplicarSlot}
+              />
+              <SlotInsulina
+                titulo="Tu insulina basal / lenta"
+                ayuda="La de fondo, de acción prolongada"
+                marcas={MARCAS_BASAL_LENTA}
+                claseDefault="basal"
+                actual={slotBasal}
+                pending={pending}
+                onAplicar={aplicarSlot}
+              />
+            </div>
+
+            {/* "Otras": lo que no entra en los dos slots (mixtas, duplicadas).
+                No se oculta para no perder datos; se puede quitar. */}
+            {otras.length > 0 && (
+              <div className="mt-4">
+                <p className="mb-2 text-xs font-semibold text-muted">
+                  Otras que tenés cargadas
+                </p>
+                <div className="flex flex-col gap-2">
+                  {otras.map((i) => (
                     <div
                       key={i.id}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                        padding: "10px 14px",
-                        backgroundColor: AZUL_AIRE,
-                        borderRadius: 10,
-                        fontSize: 14,
-                        color: TEXTO,
-                      }}
+                      className="flex items-center justify-between gap-2 rounded-input border border-border bg-primary-air/40 px-4 py-2.5"
                     >
-                      <span>
-                        {etiqueta}
+                      <span className="text-sm text-text">
+                        {claseEtiqueta(i.clase)}
                         {i.marca ? ` · ${i.marca}` : ""}
                       </span>
-                      <button
-                        onClick={() => onEliminar(i.id)}
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        aria-label={`Quitar ${claseEtiqueta(i.clase)}${
+                          i.marca ? ` ${i.marca}` : ""
+                        }`}
                         disabled={pending}
-                        aria-label="Quitar insulina"
-                        style={{ ...linkBtn(MUTED), fontSize: 18, padding: 0 }}
+                        onClick={() => aplicarSlot(i, null)}
                       >
-                        ×
-                      </button>
+                        <span aria-hidden className="text-lg leading-none">
+                          ×
+                        </span>
+                      </Button>
                     </div>
-                  );
-                })}
+                  ))}
+                </div>
               </div>
             )}
 
-            {/* Alta: clase → marca (dropdown taxativo + Otra / No sé) */}
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              <select
-                value={claseDraft}
-                onChange={(e) => {
-                  setClaseDraft(e.target.value as ClaseInsulina | "");
-                  setMarcaDraft("");
-                  setMarcaLibre("");
-                }}
-                style={{ ...inputEstilo, color: claseDraft ? TEXTO : MUTED }}
-              >
-                <option value="">Agregar una insulina…</option>
-                {OPCIONES_CLASE_INSULINA.map((o) => (
-                  <option key={o.valor} value={o.valor}>
-                    {o.etiqueta} — {o.ayuda}
-                  </option>
-                ))}
-              </select>
-
-              {claseDraft && (
-                <select
-                  value={marcaDraft}
-                  onChange={(e) => setMarcaDraft(e.target.value)}
-                  style={{ ...inputEstilo, color: marcaDraft ? TEXTO : MUTED }}
-                >
-                  <option value="">Marca (opcional)…</option>
-                  {marcasClase.map((m) => (
-                    <option key={m.marca} value={m.marca}>
-                      {m.marca}
-                    </option>
-                  ))}
-                  <option value="no_se">No sé la marca</option>
-                  <option value="otra">Otra (escribir)</option>
-                </select>
-              )}
-
-              {claseDraft && marcaDraft === "otra" && (
-                <input
-                  type="text"
-                  value={marcaLibre}
-                  onChange={(e) => setMarcaLibre(e.target.value)}
-                  placeholder="¿Cuál?"
-                  maxLength={80}
-                  style={inputEstilo}
-                />
-              )}
-
-              <button
-                onClick={onAgregar}
-                disabled={!claseDraft || pending}
-                style={{
-                  ...secondaryBtn,
-                  opacity: claseDraft && !pending ? 1 : 0.5,
-                  cursor: claseDraft && !pending ? "pointer" : "not-allowed",
-                }}
-              >
-                + Agregar insulina
-              </button>
-            </div>
-          </Seccion>
+            <p className="mt-4 text-xs leading-body text-muted">
+              ¿Usás una premezcla (tipo NovoMix o Humalog Mix) u otra? Elegí “Otra”
+              y escribila. Si no usás insulina, dejá los dos en “No uso”.
+            </p>
+          </Bloque>
         </div>
       </div>
     </div>
   );
 }
 
-function Seccion({ titulo, children }: { titulo: string; children: React.ReactNode }) {
+// ── Piezas ────────────────────────────────────────────────────────────────────
+
+/** Bloque de campos con título suave (no "formulario médico", R2). */
+function Bloque({
+  titulo,
+  ayuda,
+  children,
+}: {
+  titulo: string;
+  ayuda: string;
+  children: React.ReactNode;
+}) {
   return (
-    <div style={{ marginBottom: 22 }}>
-      <h2
-        style={{
-          color: TEXTO,
-          fontSize: 15,
-          fontWeight: 700,
-          margin: "0 0 12px",
-        }}
-      >
+    <section>
+      <h2 className="text-base font-extrabold leading-title text-text">
         {titulo}
       </h2>
+      <p className="mt-1 mb-4 text-xs leading-body text-muted">{ayuda}</p>
+      <div className="flex flex-col gap-4">{children}</div>
+    </section>
+  );
+}
+
+/** Separador suave entre bloques (R2). */
+function Separador() {
+  return <div className="my-6 border-t border-border" />;
+}
+
+/**
+ * Campo con label accesible. Para grupos de botones (tipo/sexo) usa
+ * `comoFieldset` → renderiza <fieldset>/<legend> en vez de <label> (a11y 1.3.1).
+ */
+function Campo({
+  etiqueta,
+  htmlFor,
+  className,
+  comoFieldset = false,
+  children,
+}: {
+  etiqueta: string;
+  htmlFor?: string;
+  className?: string;
+  comoFieldset?: boolean;
+  children: React.ReactNode;
+}) {
+  if (comoFieldset) {
+    return (
+      <fieldset className={cn("m-0 border-0 p-0", className)}>
+        <legend className="mb-1.5 p-0 text-xs font-semibold text-muted">
+          {etiqueta}
+        </legend>
+        {children}
+      </fieldset>
+    );
+  }
+  return (
+    <div className={className}>
+      <label
+        htmlFor={htmlFor}
+        className="mb-1.5 block text-xs font-semibold text-muted"
+      >
+        {etiqueta}
+      </label>
       {children}
     </div>
   );
 }
 
-const inputEstilo: React.CSSProperties = {
-  width: "100%",
-  padding: "12px 14px",
-  border: `1px solid ${BORDE}`,
-  borderRadius: 10,
-  fontSize: 15,
-  color: TEXTO,
-  backgroundColor: "#F8FAFC",
-  outline: "none",
-  boxSizing: "border-box",
-};
-
-const primaryBtn: React.CSSProperties = {
-  width: "100%",
-  padding: "12px 0",
-  border: "none",
-  borderRadius: 10,
-  fontSize: 16,
-  fontWeight: 700,
-  color: "#FFFFFF",
-  cursor: "pointer",
-  minHeight: 44,
-  transition: "background-color 0.2s",
-};
-
-const secondaryBtn: React.CSSProperties = {
-  width: "100%",
-  padding: "10px 0",
-  border: `1px solid ${AZUL}`,
-  borderRadius: 10,
-  fontSize: 14,
-  fontWeight: 600,
-  color: AZUL_FUERTE,
-  backgroundColor: "#FFFFFF",
-  minHeight: 44,
-};
-
-function opcionBtn(activo: boolean): React.CSSProperties {
-  return {
-    padding: "12px",
-    borderRadius: 12,
-    border: `1.5px solid ${activo ? AZUL : BORDE}`,
-    backgroundColor: activo ? AZUL_AIRE : "#F8FAFC",
-    color: TEXTO,
-    fontSize: 14,
-    fontWeight: 600,
-    cursor: "pointer",
-    minHeight: 44,
-    textAlign: "center",
-    transition: "all 0.15s",
-  };
+/** Botón-opción toggle (tipo de diabetes / sexo). Táctil (≥44px), aria-pressed. */
+function OpcionToggle({
+  activo,
+  onClick,
+  className,
+  children,
+}: {
+  activo: boolean;
+  onClick: () => void;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={activo}
+      className={cn(
+        "flex min-h-11 items-center justify-center rounded-input border px-3 py-2.5 text-center text-sm font-semibold text-text transition-all",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-strong focus-visible:ring-offset-2",
+        activo
+          ? "border-primary-strong bg-primary-air shadow-btn-hover"
+          : "border-border-strong bg-white hover:border-primary-soft hover:bg-primary-air/50",
+        className
+      )}
+    >
+      {children}
+    </button>
+  );
 }
 
-function linkBtn(color: string): React.CSSProperties {
-  return {
-    background: "transparent",
-    border: "none",
-    color,
-    fontSize: 14,
-    fontWeight: 600,
-    cursor: "pointer",
-    padding: "4px 0",
-  };
+/** Etiqueta legible de una clase de insulina (para "otras"). */
+function claseEtiqueta(clase: ClaseInsulina): string {
+  switch (clase) {
+    case "rapida":
+      return "Rápida";
+    case "basal":
+      return "Basal";
+    case "lenta":
+      return "Lenta / NPH";
+    case "mixta":
+      return "Mixta";
+  }
+}
+
+/** Valor lógico del Select derivado de la insulina activa del slot. */
+function valorDeActual(
+  actual: InsulinaItem | null,
+  marcas: ReadonlyArray<{ marca: string }>
+): string {
+  if (!actual) return NO_USO;
+  // El `&&` narrowea `marca` a string, así el return no necesita aserción.
+  if (actual.marca && marcas.some((m) => m.marca === actual.marca)) {
+    return actual.marca;
+  }
+  if (actual.marca) return "otra"; // marca fuera de lista → texto libre
+  return "no_se"; // usa, sin marca
+}
+
+/** Traduce la selección del Select al objetivo a persistir. */
+function targetDeSeleccion(
+  v: string,
+  libre: string,
+  claseDefault: ClaseInsulina
+): TargetInsulina {
+  if (v === NO_USO) return null;
+  if (v === "no_se") return { clase: claseDefault, marca: null };
+  if (v === "otra") {
+    const marca = libre.trim();
+    return { clase: claseDefault, marca: marca ? marca : null };
+  }
+  // Marca conocida: la clase real de la marca manda (NPH → lenta, etc.).
+  return { clase: claseDeMarca(v) ?? claseDefault, marca: v };
+}
+
+/**
+ * Slot de insulina (rápida o basal/lenta): sub-tarjeta propia (borde + aire),
+ * como en el onboarding (R3), con el dropdown tokenizado (shadcn Select).
+ * Agregar / desactivar / cambiar se resuelven vía las Server Actions existentes
+ * en el padre (aplicarSlot). El "" lógico se mapea al item "no_uso".
+ */
+function SlotInsulina({
+  titulo,
+  ayuda,
+  marcas,
+  claseDefault,
+  actual,
+  pending,
+  onAplicar,
+}: {
+  titulo: string;
+  ayuda: string;
+  marcas: ReadonlyArray<{ marca: string; clase: ClaseInsulina }>;
+  claseDefault: ClaseInsulina;
+  actual: InsulinaItem | null;
+  pending: boolean;
+  onAplicar: (actual: InsulinaItem | null, target: TargetInsulina) => void;
+}) {
+  const valorActual = valorDeActual(actual, marcas);
+  // `edicionOtra` mantiene el modo "Otra" mientras se escribe, sin aplicar hasta
+  // confirmar. null = seguir el valor derivado de `actual`.
+  const [edicionOtra, setEdicionOtra] = useState<string | null>(null);
+  const enOtra = edicionOtra !== null || valorActual === "otra";
+  const valueSelect = edicionOtra !== null ? "otra" : valorActual;
+
+  function onCambioSelect(v: string) {
+    if (v === "otra") {
+      // Entrar a modo texto libre, precargando la marca actual si la había.
+      setEdicionOtra(valorActual === "otra" ? actual?.marca ?? "" : "");
+      return;
+    }
+    setEdicionOtra(null);
+    onAplicar(actual, targetDeSeleccion(v, "", claseDefault));
+  }
+
+  function confirmarOtra() {
+    if (edicionOtra === null) return;
+    onAplicar(actual, targetDeSeleccion("otra", edicionOtra, claseDefault));
+    setEdicionOtra(null);
+  }
+
+  return (
+    <div className="rounded-input border border-border bg-primary-air/40 p-4">
+      <p className="text-sm font-bold text-text">{titulo}</p>
+      <p className="mb-2.5 text-xs text-muted">{ayuda}</p>
+      <Select value={valueSelect} onValueChange={onCambioSelect} disabled={pending}>
+        <SelectTrigger className="bg-white" aria-label={titulo}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={NO_USO}>No uso / no aplica</SelectItem>
+          {marcas.map((m) => (
+            <SelectItem key={m.marca} value={m.marca}>
+              {m.marca}
+            </SelectItem>
+          ))}
+          <SelectItem value="no_se">Uso pero no sé la marca</SelectItem>
+          <SelectItem value="otra">Otra (escribir)</SelectItem>
+        </SelectContent>
+      </Select>
+
+      {enOtra && (
+        <div className="mt-2.5 flex gap-2">
+          <Input
+            type="text"
+            value={edicionOtra ?? actual?.marca ?? ""}
+            onChange={(e) => setEdicionOtra(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                confirmarOtra();
+              }
+            }}
+            placeholder="¿Cuál?"
+            maxLength={80}
+            className="flex-1 bg-white"
+            aria-label={`${titulo}: escribí la marca`}
+          />
+          <Button
+            type="button"
+            variant="soft"
+            size="sm"
+            onClick={confirmarOtra}
+            disabled={pending || edicionOtra === null}
+          >
+            Guardar
+          </Button>
+        </div>
+      )}
+    </div>
+  );
 }

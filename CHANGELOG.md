@@ -3,6 +3,34 @@
 Todos los cambios notables de este proyecto se documentan acá.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [Paso 10B-4] — 2026-07-16 — Rediseño de la pantalla de perfil
+
+> Paso **puramente visual**: rediseña `/perfil` con el sistema del 10A/10B-1/2/3
+> (tokens, Nunito, shadcn, cards 28px, accesibilidad AA). **Cierra el rediseño
+> del paso 10** — era la última pantalla sin pasar por el sistema visual.
+> **Cero cambios de lógica** (spec 10B-4 R7): las Server Actions de guardado
+> (`actualizarPerfil`, `agregarInsulina`, `eliminarInsulina`), la persistencia
+> en `usuario` / `insulina_usuario` y la RLS quedan **intactas**. Solo cambia la
+> capa visual sobre lo que ya funciona. **Único archivo de código tocado:**
+> `src/app/perfil/PerfilForm.tsx` (`page.tsx` y `actions.ts` sin cambios).
+
+### Cambiado
+- **`src/app/perfil/PerfilForm.tsx`** reescrita con Tailwind + shadcn — **eliminados todos los inline styles** (antes el archivo era 100% estilos inline). Fondo `bg-gradient-section`, encabezado cálido con 🩵 y título `font-black` como el onboarding, **dos cards 28px** (`rounded-card` + `shadow-card-hover`). Campos agrupados en bloques con separadores suaves (R2): *Sobre vos* (nombre · tipo de diabetes · año · sexo) y *Tu cuerpo* (peso · altura), más una card aparte para insulinas.
+- **Insulinas en dos slots** (rápida / basal-lenta) como el onboarding (R3): sub-tarjetas celestes diferenciadas con el **shadcn `Select` de marcas** (`MARCAS_RAPIDAS` / `MARCAS_BASAL_LENTA` + "No sé" + "Otra"). **Agregar / cambiar / desactivar** se resuelven **sobre las Server Actions existentes** (cambiar = `eliminar` + `agregar`; desactivar = `eliminar`) — orquestación de cliente, sin tocar las acciones. Reemplaza la vieja lista libre.
+- **Peso y altura** como campos editables normales (R5): **sin IMC visible, sin comentario, sin indicador evaluativo**. Ayuda del bloque: *"Nunca para juzgar tu cuerpo."* Coherente con el guardrail de `construirContextoPerfil` ya testeado.
+
+### Agregado
+- **Feedback de guardado no silencioso (R4):** toast cálido ("Listo, guardado 💙" / error "Algo no salió como esperábamos. ¿Probamos de nuevo?") en una **región viva persistente** (`role="status"` + `aria-live="polite"` siempre en el DOM, para anuncio fiable en lectores de pantalla). El botón "Guardar cambios" sale con **gradiente + pill** (`Button` primary).
+- **Navegación de vuelta al chat (R6):** link "← Volver al chat" (`Link` dentro de `Button` ghost) arriba de todo.
+- **Estados vacíos (edge cases):** sin insulinas → invitación cálida ("Todavía no cargaste tus insulinas — elegí abajo…"); insulinas que no encajan en los dos slots (una **mixta** vieja, o una 2ª del mismo tipo) → aparecen en **"Otras que tenés cargadas"** con botón de quitar, **sin ocultar ni perder ningún dato** (decisión aprobada por el dueño).
+- **Accesibilidad:** `<label htmlFor>` en cada input; `<fieldset>/<legend>` en los grupos toggle de tipo/sexo (`aria-pressed`); `aria-label` en selects, "Otra" y el botón de quitar; targets ≥44px (`min-h-11`, `size="icon"`); contraste AA reusando los tokens ya aprobados (10A/10B-2).
+- Spec y coverage en `specs/10b4-perfil.md` y `specs/10b4-perfil.coverage.md`.
+
+### Verificación
+- R1–R8 y edge cases cubiertos. `tsc` ✓, `eslint` sin errores nuevos, `next build` limpio, **vitest 161/161** ✓. `code-review` (high) sobre el diff (sin hallazgos de correctness; se limpió una aserción `as string`) y `accessibility-review` sobre `/perfil` (labels, targets táctiles, contraste; fix de la región viva del toast).
+- **Ningún archivo de seguridad ni de lógica tocado**: `actions.ts`, `page.tsx`, `middleware.ts`, `gate.ts`, seguridad, chat y patrones sin cambios.
+- **Pendiente técnico anotado** (`MEMORIA_PROYECTO.md`): `actualizarPerfil` traga sus errores de DB y devuelve `void`, así que el toast de éxito puede mostrarse ante un error de DB silencioso. Se dejó **por el guardrail R7** (cero cambios en Server Actions); el fix es que las acciones devuelvan `{ ok }` — micro-paso aparte después del rediseño.
+
 ## [Paso 10B-3] — 2026-07-15 — Rediseño de la pantalla de chat
 
 > Paso **puramente visual + accesibilidad**: rediseña `/chat` con el sistema del
