@@ -3,6 +3,32 @@
 Todos los cambios notables de este proyecto se documentan acá.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [Paso 10B-3] — 2026-07-15 — Rediseño de la pantalla de chat
+
+> Paso **puramente visual + accesibilidad**: rediseña `/chat` con el sistema del
+> 10A/10B-1/10B-2 (tokens, Nunito, shadcn, el fix de contraste del CTA).
+> **Cero cambios de lógica** (spec 10B-3 R9): la llamada a `/api/chat`, el manejo
+> de errores, el orquestador, los detectores, la memoria y los patrones quedan
+> **intactos**. Solo cambia la capa visual sobre lo que ya funciona.
+
+### Cambiado
+- **`src/app/chat/page.tsx`** reescrita con Tailwind + tokens — **eliminados todos los inline styles** (antes el archivo era 100% estilos inline). Fondo `bg-gradient-section`, header sutil (🩵 + "Gluco" + estado "En línea", sin métricas: no es un dashboard, R6), disclaimer médico cálido siempre presente. La llamada a `/api/chat` y el `catch` del error de conexión son **los mismos**; `sendMessage` solo suma un parámetro opcional `texto` para los chips de arranque (no toca el servidor).
+- **Burbujas (R2):** usuario a la derecha con el token del CTA (`bg-gradient-primary` + `text-primary-foreground` oscuro, el fix AA del 10B-2 — no se reintrodujo el gradiente sin ajustar); Gluco a la izquierda en `bg-primary-air` suave. Radio propio de burbuja `rounded-bubble` (20px) con la "colita" a 6px del lado del emisor.
+- **Composer (R5):** textarea con el mismo estilo tokenizado que los `Input` de login/onboarding (`rounded-input`, `border-border-strong`, ring `primary-strong`); botón de enviar como **ícono circular celeste** (`Button size="icon"`, lucide `Send`, 44px). Enter envía, Shift+Enter salto de línea.
+
+### Agregado
+- **Chip de glucemia (R3):** cuando la persona reporta un valor, aparece un chip con los colores semánticos (`danger`=baja <70 · `success`=en rango 70–180 · `warning`=alta >180). **No depende solo del color**: siempre lleva ícono (🔻/✅/🔺) + texto factual ("Baja/En rango/Alta") + `sr-only` con el contexto completo (daltonismo, WCAG 1.4.1). Texto oscuro sobre el color al 10% → **AA**; el color vive en borde e ícono. Se recalcula por render con el detector **puro** `detectarGlucosa` (display-only, sin tocar la lógica), así el chip es **consistente en todo el historial** (viejos y nuevos). Documentado como **excepción única y consciente** al §3 del branding.
+- **Indicador "Gluco está escribiendo" (R4):** tres puntos con blink escalonado (`animate-typing-dot` + delays), **no un spinner genérico**. Con `sr-only` "Gluco está escribiendo…" dentro de la región `aria-live`.
+- **Accesibilidad conversacional (R7):** contenedor de mensajes con `role="log"` + `aria-live="polite"` + `aria-relevant="additions"` → los mensajes nuevos y el "escribiendo" se anuncian sin interrumpir a quien está tipeando.
+- **Estado vacío cálido (R8):** mientras solo está el saludo, un texto de bienvenida + **3 chips de arranque** ("Quiero anotar una glucemia", "Tengo una duda", "Contame algo útil para hoy") que envían con un toque (misma lógica que escribir).
+- **Responsive mobile-first (R10):** `min-h-dvh` + área de mensajes `flex-1 overflow-y-auto` + composer con `pb` de `env(safe-area-inset-bottom)` → el teclado del celular no tapa el input ni el último mensaje. Autoscroll suave al último mensaje / al indicador.
+- **`tailwind.config.ts`:** token de radio `rounded-bubble` (20px) y animación `typing-dot` (keyframe con blink, se anula con `prefers-reduced-motion`). Documentados en `docs/BRANDING.md §6` (burbuja) y `§3` (excepción del chip).
+- Spec y coverage en `specs/10b3-chat.md` y `specs/10b3-chat.coverage.md`.
+
+### Verificación
+- R1–R10 y edge cases (error de conexión cálido, historial largo con autoscroll, chip consistente en todo el historial) cubiertos. `next build` limpio, **vitest** ✓. `engineering:code-review` sobre el diff y `design:accessibility-review` sobre `/chat` (contraste del chip, aria-live, zona táctil del botón de enviar).
+- **Ningún archivo de seguridad ni otro flujo tocado**: `/api/chat/route.ts`, `seguridad.ts`, `deteccion.ts`, `orquestador.ts`, patrones, perfil y `middleware.ts` sin cambios. `detectarGlucosa` se **reusa** (import de solo lectura), no se modifica.
+
 ## [Paso 10B-2] — 2026-07-15 — Rediseño del onboarding (6 pasos) + accesibilidad AA
 
 > Paso **puramente visual + accesibilidad**: rediseña `/onboarding` con el

@@ -61,6 +61,17 @@ Los 11 colores del sistema. Nada de hex sueltos en el código: todo vía token.
 > `success`/`warning`/`danger` son para estados de **la app** (guardado, error de
 > red, aviso). **Jamás** para calificar un valor de glucosa como bueno o malo.
 
+> **Excepción única y consciente — el chip de glucemia del chat (paso 10B-3).**
+> El chip que aparece cuando alguien reporta un valor SÍ usa los tres colores
+> semánticos como señal de rango: `danger` = bajo (<70), `success` = en rango
+> (70–180), `warning` = alto (>180). Es la única superficie donde el color toca
+> un valor de glucosa, y se decidió a propósito (ver `specs/10b3-chat.md` R3). Se
+> mantiene fiel al §9 en el **lenguaje**: el chip dice "Baja / En rango / Alta"
+> (rango factual), **nunca** "bueno/malo/descontrolado", y jamás sentencia a la
+> persona. El color **nunca va solo**: siempre acompañado de ícono + texto
+> (daltonismo, WCAG 1.4.1). El texto del chip va oscuro (`text`) sobre un fondo
+> del color al 10% para pasar AA; el color semántico vive en el borde y el ícono.
+
 ---
 
 ## 4. Gradientes
@@ -103,12 +114,19 @@ Nada sharp. Todo redondeado.
 |----------------|---------|---------------------------------------|
 | `rounded-card` | `28px`  | Cards                                 |
 | `rounded-input`| `14px`  | Campos de texto (intermedio, cómodo)  |
+| `rounded-bubble`| `20px` | Burbujas de chat (con "colita" a 6px) |
 | `rounded-pill` | `999px` | Botones y pills                       |
 | `rounded-circle` | `50%` | Círculos de icono                    |
 
 > **Inputs** llevan un radio intermedio (`14px`), no pill: un campo de texto
 > ancho totalmente redondeado (999px) se siente raro y aprieta el contenido. El
 > pill queda para botones y toggles; el input respira con esquinas suaves.
+
+> **Burbujas de chat** (`rounded-bubble`, 20px) tienen radio propio: más suave
+> que un input, más chico que una card — una card de 28px como burbuja se ve
+> demasiado "globo" y pesada en una conversación. La esquina del lado del emisor
+> se achica a **6px** (la "colita" que ancla la burbuja a quien habla: abajo a la
+> derecha en el usuario, abajo a la izquierda en Gluco). Charla, no tarjetas.
 
 ---
 

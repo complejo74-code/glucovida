@@ -10,7 +10,7 @@
 >    estado real al cierre, no el de hace tres pasos.
 > 3. Se commitea normal (no es historial, es orientación).
 >
-> _Última actualización: 2026-07-15 — cierre del paso 10B-2._
+> _Última actualización: 2026-07-16 — cierre del paso 10B-3._
 
 ---
 
@@ -44,7 +44,7 @@ docs/               → un doc por paso + BRANDING.md (fuente de verdad visual)
 
 ## Estado actual
 
-**Paso 10B-2 cerrado** (2026-07-15). Build de producción limpio, **Vitest
+**Paso 10B-3 cerrado** (2026-07-16). Build de producción limpio, **Vitest
 161/161**.
 
 El proyecto viene de una tanda de **rediseño visual** (paso 10) montada sobre una
@@ -59,13 +59,13 @@ cruzados, captura conversacional de variables, perfil + onboarding).
 | **10A** | Infraestructura de diseño: `docs/BRANDING.md`, tokens en `tailwind.config.ts`, Nunito, shadcn tokenizado | ✅ cerrado |
 | **10B-1** | Rediseño de `/login` | ✅ cerrado |
 | **10B-2** | Rediseño de `/onboarding` (6 pasos) + endurecimiento de accesibilidad a **WCAG 2.1 AA** | ✅ cerrado |
-| **Chat (`/chat`)** | Rediseño visual de la pantalla principal | 🔒 pendiente |
+| **10B-3** | Rediseño de `/chat` (burbujas, chip de glucemia, "escribiendo", input tokenizado, aria-live, estado vacío) | ✅ cerrado |
 | **Perfil (`/perfil`)** | Rediseño visual | 🔒 pendiente |
 
-**Lo que falta del rediseño: `/chat` y `/perfil`.** Son las dos pantallas que
-todavía no pasaron por el sistema del 10A. Toda la infraestructura visual
-(tokens, Nunito, shadcn, animaciones, tokens de accesibilidad AA) ya está lista
-para aplicarlas — es trabajo de presentación, sin lógica nueva.
+**Lo que falta del rediseño: solo `/perfil`.** Es la última pantalla que todavía
+no pasó por el sistema del 10A. Toda la infraestructura visual (tokens, Nunito,
+shadcn, animaciones, tokens de accesibilidad AA, radio de burbuja) ya está lista
+para aplicarla — es trabajo de presentación, sin lógica nueva.
 
 > Regla que se mantuvo en todo el paso 10 y hay que mantener: **el rediseño es
 > puramente visual.** No se toca `actions.ts`, `middleware.ts`, `gate.ts`,
@@ -96,6 +96,17 @@ un **guardrail explícito** en `construirContextoPerfil` que prohíbe todo
 comentario evaluativo ("nunca deberías bajar de peso", nada de dietas para
 adelgazar). Hay un **test que lo fija**. Es coherente con la regla de oro del tono:
 **jamás juzgar** — ni la glucosa, ni el cuerpo. Se acompaña, no se sentencia.
+
+### El chip de glucemia es la única excepción al "los colores no juzgan"
+BRANDING §3 reserva `success`/`warning`/`danger` para estados de **la app**, nunca
+para calificar una glucosa. El **chip del chat (10B-3)** es la **única excepción
+consciente**: usa los tres colores como señal de rango (`danger`=baja <70,
+`success`=en rango 70–180, `warning`=alta >180). Se decidió con el dueño (opción
+"R3 literal") y está documentada en BRANDING §3. Se mantiene fiel al §9 en el
+**lenguaje** ("Baja/En rango/Alta", jamás "bueno/malo") y **el color nunca va
+solo**: siempre con ícono + texto + `sr-only` (daltonismo). El detector
+`detectarGlucosa` se **reusa client-side solo para mostrar** el chip; no cambia
+nada de la lógica del servidor (la API sigue devolviendo solo `{ reply }`).
 
 ### El protocolo 15/15 es ciego al perfil
 En **emergencia** (hipoglucemia detectada) **no se inyecta perfil, ni patrones,
@@ -175,7 +186,7 @@ paso es un commit directo. Commitear/pushear **solo cuando lo pide**. Actualizar
   `supabaseResponse` (patrón pre-existente del repo). Ante rotación de token se
   puede perder la cookie nueva. Detectado en el review del paso 9, sin resolver
   todavía.
-- **`/chat` y `/perfil` sin rediseñar** (ver Estado actual) — es el próximo tramo
-  natural del paso 10.
+- **`/perfil` sin rediseñar** (ver Estado actual) — es lo único que falta del
+  paso 10; el próximo tramo natural. `/chat` ya se cerró en 10B-3.
 - **`menstrua`** se persiste pero a propósito **no se surfacea** en el contexto:
   queda reservada para un futuro subagente hormonal que todavía no existe.

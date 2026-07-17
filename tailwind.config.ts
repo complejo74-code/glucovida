@@ -39,10 +39,12 @@ const config: Config = {
         danger: "#EF4444",
       },
 
-      // ── Radios (4) ───────────────────────────────────────────────────────
+      // ── Radios (5) ───────────────────────────────────────────────────────
       borderRadius: {
         card: "28px",
         input: "14px", // radio intermedio cómodo para inputs (ni sharp ni pill)
+        bubble: "20px", // burbuja de chat: más suave que el input, más chico que
+        //                 la card — con la esquina del emisor a 6px ("colita")
         pill: "999px",
         circle: "50%",
       },
@@ -87,10 +89,17 @@ const config: Config = {
           "0%, 100%": { transform: "translateY(0)" },
           "50%": { transform: "translateY(-4px)" },
         },
+        // "Gluco está escribiendo": tres puntos con blink escalonado (no un
+        // spinner genérico, ver spec 10B-3 R4). El delay lo pone cada punto.
+        "typing-dot": {
+          "0%, 80%, 100%": { opacity: "0.35", transform: "translateY(0)" },
+          "40%": { opacity: "1", transform: "translateY(-2px)" },
+        },
       },
       animation: {
         "fade-slide-in": "fade-slide-in 0.35s ease-out both",
         float: "float 3.5s ease-in-out infinite",
+        "typing-dot": "typing-dot 1.2s ease-in-out infinite",
       },
     },
   },
