@@ -3,6 +3,46 @@
 Todos los cambios notables de este proyecto se documentan acá.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [Paso 11] — 2026-07-17 — PWA instalable
+
+> Configuración, **no** reescritura: la misma web Next sigue funcionando igual
+> para quien la usa en el navegador. Se agrega lo necesario para instalarla como
+> app desde el teléfono (ícono en pantalla de inicio, apertura en pantalla
+> completa, splash de marca) y para que abra rápido y con un estado offline
+> cálido. **Invariante de salud innegociable (spec 11 R4):** el Service Worker
+> cachea **solo** assets estáticos e inmutables; **jamás** el chat, `/api/*`,
+> navegaciones ni datos de glucosa/perfil — esa información es siempre fresca.
+
+### Agregado
+- **`src/app/manifest.ts`** — manifest PWA (Next lo sirve en
+  `/manifest.webmanifest`): `name`/`short_name` "GlucoVida", `display: standalone`,
+  `orientation: portrait`, `start_url: /chat` (la raíz ya redirige según sesión),
+  `theme_color #22A7E6` y `background_color #FFFFFF` (tokens de marca), con íconos
+  192/512 y uno `maskable` para Android.
+- **`public/icons/`** — íconos de marca (192, 512, maskable 512, apple-touch 180):
+  corazón blanco 🩵 sobre el gradiente celeste de marca; el maskable respeta la
+  safe-zone de Android.
+- **`public/sw.js`** — Service Worker **mínimo**. Cache-first **solo** para
+  `/_next/static/*`, `/icons/*` y `/favicon.ico`. `/api/*` y todas las
+  navegaciones (HTML con datos del usuario) van **siempre** a la red, sin caché.
+  Ante una navegación sin conexión, sirve un estado offline cálido.
+- **`src/app/offline/page.tsx`** + fallback HTML inline en el SW — estado
+  "Sin conexión, ya volvemos" (tono del branding §9), nunca una pantalla en
+  blanco ni un error crudo. El HTML inline es autocontenido: se ve aunque no haya
+  ningún CSS cacheado.
+- **`src/components/pwa/SplashScreen.tsx`** — splash de marca (gradiente
+  celeste→blanco + 🩵) que aparece **solo** al abrir la app instalada
+  (standalone) y se desvanece; en el navegador normal no se monta (uso web
+  idéntico).
+- **`src/components/pwa/ServiceWorkerRegister.tsx`** — registra el SW **solo en
+  producción** y falla abierto (si no se puede registrar, la app sigue como web
+  normal).
+
+### Cambiado
+- **`src/app/layout.tsx`** — metadata/viewport para PWA: `theme-color #22A7E6`,
+  `apple-mobile-web-app-capable`, `apple-touch-icon` e íconos; monta el splash y
+  el registro del SW. Sin cambios de comportamiento para el uso en navegador.
+
 ## [Paso 10B-5] — 2026-07-17 — Feedback fiel de guardado en /perfil
 
 > Micro-paso de **manejo de resultado**, no de rediseño: cierra el pendiente
